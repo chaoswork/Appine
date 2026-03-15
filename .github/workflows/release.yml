@@ -6,10 +6,14 @@ on:
     tags:
       - 'v*'
 
+# 显式赋予 GITHUB_TOKEN 写权限，以便创建 release 和上传 asset
+permissions:
+  contents: write
+
 jobs:
   build-and-release:
     runs-on: macos-latest # 使用 GitHub 提供的 Mac 服务器
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -20,12 +24,13 @@ jobs:
         uses: purcell/setup-emacs@master
         with:
           version: '29.1' # Specify the Emacs version you need
+
       - name: Locate emacs-module.h
         run: |
           # 1. 获取 Emacs 的安装根目录 (比如 /nix/store/...-emacs-29.1)
           EMACS_PREFIX=$(dirname $(dirname $(which emacs)))
           EMACS_INCLUDE_DIR="$EMACS_PREFIX/include"
-          
+
           # 2. 检查推导的目录中是否存在头文件
           if [ ! -f "$EMACS_INCLUDE_DIR/emacs-module.h" ]; then
             echo "Not found in $EMACS_INCLUDE_DIR, searching in $EMACS_PREFIX..."
@@ -37,14 +42,14 @@ jobs:
               EMACS_INCLUDE_DIR=""
             fi
           fi
-          
+
           # 3. 终极兜底：如果本地确实没有（被发行版精简了），则自动下载
           if [ -z "$EMACS_INCLUDE_DIR" ] || [ ! -f "$EMACS_INCLUDE_DIR/emacs-module.h" ]; then
             echo "emacs-module.h not found locally. Downloading from Emacs mirror..."
             curl -s -O https://raw.githubusercontent.com/emacs-mirror/emacs/emacs-29/src/emacs-module.h
             EMACS_INCLUDE_DIR="."
           fi
-          
+
           # 4. 导出环境变量给下一步的 make 使用
           echo "EMACS_INCLUDE_DIR=$EMACS_INCLUDE_DIR" >> $GITHUB_ENV
           echo "Successfully located emacs-module.h at: $EMACS_INCLUDE_DIR"
