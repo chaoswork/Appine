@@ -5,7 +5,7 @@
 ;; Author: Huang Chao <huangchao.cpp@gmail.com>
 ;; Copyright (C) 2026, Huang Chao, all rights reserved.
 ;; Created: 2026-03-15 19:35:21
-;; Version: 0.0.3
+;; Version: 0.0.4
 ;; Package-Requires: ((emacs "29.1"))
 ;; URL: https://github.com/chaoswork/appine
 ;; Keywords: tools, multimedia, convenience, macos
@@ -57,7 +57,7 @@
 (require 'url)
 
 (defconst appine-github-repo "chaoswork/appine")
-(defconst appine-version "0.0.3") ;; 记得打 tag 以使用 github action
+(defconst appine-version "0.0.4") ;; 记得打 tag 以使用 github action
 
 
 ;; 加载模块
@@ -67,6 +67,16 @@
 
 (defvar appine-download-retries 3
   "下载预编译模块的失败重试次数。")
+
+(defun my-source-file-name ()
+  "返回当前加载文件对应的 .el 源文件真实路径，方便编译"
+  (let* ((file (or load-file-name (buffer-file-name)))
+         (source-file
+          (if (and file (string-suffix-p ".elc" file))
+              (substring file 0 -1)   ; "foo.elc" -> "foo.el"
+            file)))
+    (and source-file
+         (file-truename source-file))))
 
 (defun appine--remove-quarantine (file)
   "尝试移除 macOS Gatekeeper 隔离属性，不然加载时可能会有弹窗拦截。"
@@ -82,14 +92,13 @@
 
 (defun appine--compile-module ()
   "本地执行 make 编译动态模块。"
-  (message "[Appine] 开始在本地编译模块...")
-  (let* ((current-file (file-truename (or load-file-name buffer-file-name)))
-         (dir (file-name-directory current-file))
+  (message "[Appine] Starting local compilation of the module, This may take a few minutes...")
+  (let* ((dir (file-name-directory (my-source-file-name)))
          (default-directory dir)
          (exit-code (call-process "make" nil "*appine-compile*" t)))
     (if (= exit-code 0)
-        (message "[Appine] 本地编译成功！")
-      (error "[Appine] 本地编译失败，请检查 *appine-compile* buffer 中的错误信息"))))
+        (message "[Appine] Starting to compile the module locally. This may take a few minutes...")
+      (error "[Appine] Local compilation failed. See the *appine-compile* buffer for error details."))))
 
 (defun appine--download-module (url dest-path)
   "带有超时和重试机制的下载函数。
@@ -97,7 +106,7 @@
   (let ((retries appine-download-retries)
         (success nil))
     (while (and (> retries 0) (not success))
-      (message "[Appine] 正在下载预编译模块 (尝试 %d/%d)..."
+      (message "[Appine] Downloading the precompiled module (try %d/%d)..."
                (1+ (- appine-download-retries retries))
                appine-download-retries)
       (condition-case err
@@ -115,11 +124,11 @@
                       (let ((coding-system-for-write 'no-conversion))
                         (write-region (point) (point-max) dest-path nil 'silent))
                       (setq success t)
-                      (message "[Appine] 模块下载成功！"))
+                      (message "[Appine] download successful！"))
                   (error "文件不存在或网络错误 (HTTP 状态异常)"))
                 (kill-buffer buffer))))
         (error
-         (message "[Appine] 下载失败: %s" (error-message-string err))
+         (message "[Appine] download failed: %s" (error-message-string err))
          (setq retries (1- retries))
          (when (> retries 0)
            (sleep-for 2))))) ;; 失败后等待 2 秒再重试
@@ -128,8 +137,7 @@
 (defun appine-ensure-module ()
   "确保动态模块存在。如果不存在，询问是否下载预编译版本，选择是则尝试下载，否则直接本地编译。"
   ;; 使用 file-truename 解析软链接的真实路径
-  (let* ((current-file (file-truename (or load-file-name buffer-file-name)))
-         (dir (file-name-directory current-file))
+  (let* ((dir (file-name-directory (my-source-file-name)))
          (module-file (expand-file-name "appine-module.dylib" dir))
          (download-url (format "https://github.com/%s/releases/download/v%s/appine-module.dylib"
                                appine-github-repo appine-version)))
@@ -137,17 +145,17 @@
     ;; 1. 如果文件不存在，处理获取逻辑
     (unless (file-exists-p module-file)
       ;; 询问用户是否下载预编译版本
-      (if (y-or-n-p "[Appine] 未找到本地模块，是否尝试从 GitHub 下载预编译版本？")
+      (if (y-or-n-p "[Appine] Would you like to download a precompiled module from GitHub?\n未找到本地模块，是否尝试从 GitHub 下载预编译版本？")
           (progn
-            (message "[Appine] 准备下载预编译模块...")
+            (message "[Appine] Preparing to download the precompiled module...")
             (if (appine--download-module download-url module-file)
                 ;; 下载成功后，立刻尝试移除 macOS 的隔离属性
                 (appine--remove-quarantine module-file)
               ;; 如果下载失败（超时或网络错误），回退到本地编译
-              (message "[Appine] 下载预编译模块失败，回退到本地编译...")
+              (message "[Appine] Failed to download the precompiled module. Falling back to local compilation...")
               (appine--compile-module)))
         ;; 用户选择不下载（选 n），直接进入本地编译
-        (message "[Appine] 跳过下载，直接开始本地编译...")
+        (message "[Appine] Skipping download and starting local compilation...")
         (appine--compile-module)))
     
     ;; 2. 加载模块
@@ -156,12 +164,12 @@
             (progn
               (appine--remove-quarantine module-file)
               (module-load module-file)
-              (message "[Appine] 原生模块加载成功！"))
+              (message "[Appine] module loaded！"))
           (error
-           (message "[Appine] 模块加载失败: %s" (error-message-string err))
+           (message "[Appine] module load failed: %s" (error-message-string err))
            (message "[Appine] 如果是 macOS 安全限制，请在终端执行: xattr -d com.apple.quarantine %s" module-file)
            (signal (car err) (cdr err))))
-      (error "[Appine] 致命错误：模块文件不存在且编译失败！"))))
+      (error "[Appine] Loading failed. Please read the README.md and try building from source."))))
 
 ;; 在插件加载时自动执行保障逻辑
 (appine-ensure-module)

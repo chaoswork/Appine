@@ -548,6 +548,13 @@ static void appine_add_tab(id<AppineBackend> backend) {
     appine_attach_active_view();
     appine_set_active(YES);
 }
+void appine_core_add_web_tab(NSString *urlString) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (urlString) {
+            appine_add_tab(appine_create_web_backend(urlString));
+        }
+    });
+}
 
 #pragma mark - C API Exports
 

@@ -24,7 +24,9 @@
 #import <WebKit/WebKit.h>
 #import "appine_backend.h"
 
-@interface AppineWebBackend : NSObject <AppineBackend, WKNavigationDelegate, NSTextFieldDelegate>
+extern void appine_core_add_web_tab(NSString *urlString);
+
+@interface AppineWebBackend : NSObject <AppineBackend, WKNavigationDelegate, WKUIDelegate, NSTextFieldDelegate>
 @property (nonatomic, strong) NSView *containerView; // 复合视图容器
 @property (nonatomic, strong) WKWebView *webView;
 @property (nonatomic, strong) NSTextField *urlField;
@@ -145,6 +147,7 @@
     
     _webView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
     _webView.navigationDelegate = self;
+    _webView.UIDelegate = self;
     [_containerView addSubview:_webView];
 }
 
@@ -220,6 +223,24 @@
     } else if ([keyPath isEqualToString:@"canGoForward"]) {
         self.forwardBtn.enabled = self.webView.canGoForward;
     }
+}
+
+#pragma mark - WKUIDelegate
+
+- (WKWebView *)webView:(WKWebView *)webView createWebViewWithConfiguration:(WKWebViewConfiguration *)configuration forNavigationAction:(WKNavigationAction *)navigationAction windowFeatures:(WKWindowFeatures *)windowFeatures {
+
+    // 如果 targetFrame 为空（说明是 target="_blank"）或者不是主 Frame
+    if (!navigationAction.targetFrame.isMainFrame) {
+        NSURL *url = navigationAction.request.URL;
+        if (url) {
+            // 调用 appine_core.m 提供的接口，在 Appine 中创建一个新的 Tab
+            appine_core_add_web_tab(url.absoluteString);
+        }
+    }
+
+    // 返回 nil 表示我们不提供一个新的 WKWebView 实例给系统去渲染，
+    // 而是由我们自己的 Tab 系统接管了这个 URL。
+    return nil;
 }
 
 #pragma mark - AppineBackend Protocol
