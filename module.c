@@ -70,7 +70,7 @@ static emacs_value Fappine_open_web_in_rect(emacs_env *env, ptrdiff_t nargs, ema
     return env->intern(env, "t");
 }
 
-static emacs_value Fappine_open_pdf_in_rect(emacs_env *env, ptrdiff_t nargs, emacs_value *args, void *data) {
+static emacs_value Fappine_open_file_in_rect(emacs_env *env, ptrdiff_t nargs, emacs_value *args, void *data) {
     char *path = copy_emacs_string(env, args[0]);
     if (!path) return env->intern(env, "nil");
 
@@ -79,7 +79,7 @@ static emacs_value Fappine_open_pdf_in_rect(emacs_env *env, ptrdiff_t nargs, ema
     int w = get_emacs_int(env, args[3]);
     int h = get_emacs_int(env, args[4]);
 
-    appine_core_open_pdf_in_rect(path, x, y, w, h);
+    appine_core_open_file_in_rect(path, x, y, w, h);
     free(path);
     return env->intern(env, "t");
 }
@@ -156,8 +156,8 @@ int emacs_module_init(struct emacs_runtime *runtime) {
 
     bind_function(env, "appine-native-open-web-in-rect", 5, 5, Fappine_open_web_in_rect,
                   "Open URL in embedded rect as a new tab.");
-    bind_function(env, "appine-native-open-pdf-in-rect", 5, 5, Fappine_open_pdf_in_rect,
-                  "Open PDF in embedded rect as a new tab.");
+    bind_function(env, "appine-native-open-file-in-rect", 5, 5, Fappine_open_file_in_rect,
+                  "Open File in embedded rect as a new tab.");
     bind_function(env, "appine-native-move-resize", 4, 4, Fappine_move_resize,
                   "Move/resize embedded native view.");
     bind_function(env, "appine-native-close-active-tab", 0, 0, Fappine_close_active_tab,

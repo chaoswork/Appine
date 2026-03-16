@@ -29,8 +29,7 @@ extern "C" {
 #endif
 
 int appine_core_open_web_in_rect(const char *url, int x, int y, int width, int height);
-int appine_core_open_pdf_in_rect(const char *path, int x, int y, int width, int height);
-int appine_core_open_quicklook_in_rect(const char *path, int x, int y, int width, int height);
+int appine_core_open_file_in_rect(const char *path, int x, int y, int width, int height);
 int appine_core_move_resize(int x, int y, int width, int height);
 int appine_core_close(void);
 

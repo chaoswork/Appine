@@ -5,7 +5,7 @@
 ;; Author: Huang Chao <huangchao.cpp@gmail.com>
 ;; Copyright (C) 2026, Huang Chao, all rights reserved.
 ;; Created: 2026-03-15 19:35:21
-;; Version: 0.0.4
+;; Version: 0.0.5
 ;; Package-Requires: ((emacs "29.1"))
 ;; URL: https://github.com/chaoswork/appine
 ;; Keywords: tools, multimedia, convenience, macos
@@ -57,7 +57,7 @@
 (require 'url)
 
 (defconst appine-github-repo "chaoswork/appine")
-(defconst appine-version "0.0.4") ;; 记得打 tag 以使用 github action
+(defconst appine-version "0.0.5") ;; 记得打 tag 以使用 github action
 
 
 ;; 加载模块
@@ -389,11 +389,12 @@
     (select-window appine--window)
     (appine--set-active t)))
 
-(defun appine-open-pdf-split (path)
-  "Split window on the right and open PATH in a new embedded native PDF tab."
-  (interactive "fPDF file: ")
+;; TODO: combine appine-open-file-split, appine-open-pdf-split to one func
+(defun appine-open-file-split (path)
+  "Split window on the right and open PATH in a new embedded native Quicklook tab."
+  (interactive "fFile: ")
   (pcase-let* ((`(,x ,y ,w ,h) (appine--rect)))
-    (appine-native-open-pdf-in-rect (expand-file-name path) x y w h)
+    (appine-native-open-file-in-rect (expand-file-name path) x y w h)
     ;; 强制将 Emacs 的光标焦点移动到 appine 窗口
     (select-window appine--window)
     (appine--set-active t)))
@@ -502,6 +503,53 @@
 
 ;; 绑定到 SIGUSR1
 (define-key special-event-map [sigusr1] #'appine-deactivate-action)
+
+;;; --------------------------------------------------------
+;;; Org-mode 集成
+;;; --------------------------------------------------------
+(defcustom appine-enable-open-in-org-mode nil
+  "当设置为 t 时，在 org-mode 中尝试使用 Appine 打开 URL 和非 org 文件链接。"
+  :type 'boolean
+  :group 'appine)
+
+(defun appine-toggle-open-in-org-mode ()
+  "切换是否在 org-mode 中使用 Appine 打开链接。"
+  (interactive)
+  (setq appine-enable-open-in-org-mode (not appine-enable-open-in-org-mode))
+  (message "[Appine] Org-mode: Open files/URLs with Appine: %s"
+           (if appine-enable-open-in-org-mode "开启 (ON)" "关闭 (OFF)")))
+
+(defun appine--org-open-at-point ()
+  "拦截 `org-open-at-point'，根据配置使用 Appine 打开链接。
+作为 hook 函数添加到 `org-open-at-point-functions' 中。"
+  (when appine-enable-open-in-org-mode
+    (let* ((context (ignore-errors (org-element-context)))
+           (type (org-element-type context)))
+      (when (eq type 'link)
+        (let ((link-type (org-element-property :type context))
+              (path (org-element-property :path context)))
+          (cond
+           ;; 1. 处理 URL (http / https)
+           ((member link-type '("http" "https"))
+            (let ((url (concat link-type ":" path)))
+              (appine-open-web-split url))
+            t) ;; 返回 t 表示已拦截处理
+           
+           ;; 2. 处理文件链接
+           ((equal link-type "file")
+            ;; 如果是 org 文件，返回 nil 交给 org-mode 默认处理
+            (if (string-suffix-p ".org" path t)
+                nil
+              ;; 否则使用 appine 打开文件
+              (appine-open-file-split path)
+              t)) ;; 返回 t 表示已拦截处理
+           
+           ;; 3. 其他类型（如内部标题链接、id 链接等），返回 nil 交给 org-mode 默认处理
+           (t nil)))))))
+
+;; 在 org-mode 加载后自动挂载 hook
+(with-eval-after-load 'org
+  (add-hook 'org-open-at-point-functions #'appine--org-open-at-point))
 
 
 (provide 'appine)

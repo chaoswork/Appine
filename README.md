@@ -19,6 +19,7 @@ Support for Windows and Linux systems will be considered in the future. The main
 - **Native Word/Excel Rendering**: View Word/Excel files with macOS's built-in Quartz for buttery-smooth scrolling and zooming. Unfortunately, you cannot edit them yet.
 - **Seamless Integration**: The native views automatically resize and move when you split or adjust Emacs windows.
 - **Tab Management**: Support for multiple embedded tabs, switching, and closing directly from Emacs.
+- **Org-mode Integration**: Use Appine to open links and files within Org files.
 
 ## 📖 Usage
 
@@ -43,12 +44,18 @@ A video demonstrating Open Web Page.
 
 https://github.com/user-attachments/assets/f63eff4e-754e-4d4f-b11c-aa9d3f982c67
 
-### Open a PDF Document
-Run `M-x appine-open-pdf-split`. Select a PDF file, and it will be rendered using macOS PDFKit.
+### Opening PDFs and Other Documents
+Run `M-x appine-open-file-split`. If you select a PDF file, it will be rendered using macOS PDFKit. Other files will be previewed using Quick Look.
 
 A video demonstrating Open PDF.
 
 https://github.com/user-attachments/assets/f2dd6c5a-eabb-421b-8d2c-986540f230f6
+
+### Org-mode Integration
+
+Setting `(setq appine-enable-open-in-org-mode t)` enables opening URLs and files with Appine. You can toggle this feature on or off by running `M-x appine-toggle-open-in-org-mode`.
+
+TODO: Add a video demonstrating Org-mode integration.
 
 ### Toolbar
 
@@ -60,7 +67,7 @@ Copy/Paste video
 https://github.com/user-attachments/assets/fd33d767-37dd-4027-adae-823b32228c7e
 
 ### Window Management
-The native view is tied to an Emacs buffer (e.g., `*Appine*`). You can split windows (`C-x 3`, `C-x 2`), resize them, or switch buffers. The native view will automatically track the Emacs window's geometry.
+The native view is tied to an Emacs buffer (named `*Appine-Window*`). You can split windows (`C-x 3`, `C-x 2`), resize them, or switch buffers. The native view will automatically track the Emacs window's geometry.
 
 ## 📦 Requirements
 
@@ -77,10 +84,13 @@ The easiest way to install Appine is using `use-package` with `straight.el` or `
 ```elisp
 (use-package appine
   :straight (appine :type git :host github :repo "chaoswork/appine")
+  :custom
+  ;; enables opening URLs and files with Appine, default is nil
+  (appine-enable-open-in-org-mode t) 
   :config
   ;; Optional: Set default keybindings
   (global-set-key (kbd "C-x a w") 'appine-open-web-split)
-  (global-set-key (kbd "C-x a p") 'appine-open-pdf-split))
+  (global-set-key (kbd "C-x a o") 'appine-open-file-split))  
 ```
 
 ### Method 2: Build from Source

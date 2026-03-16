@@ -70,7 +70,7 @@ static void appine_setup_global_event_monitor(void) {
                       NSStringFromPoint(event.locationInWindow), [hitView className], [event.window className]);
             }
             
-            // 【终极 Hack】绕过 Emacs 事件黑洞
+            // 绕过 Emacs 事件黑洞
             if ([hitView isKindOfClass:[NSSegmentedControl class]]) {
                 NSSegmentedControl *tabControl = (NSSegmentedControl *)hitView;
                 NSPoint loc = [tabControl convertPoint:event.locationInWindow fromView:nil];
@@ -116,6 +116,64 @@ static void appine_setup_global_event_monitor(void) {
 extern id<AppineBackend> appine_create_web_backend(NSString *urlString);
 extern id<AppineBackend> appine_create_pdf_backend(NSString *path);
 extern id<AppineBackend> appine_create_quicklook_backend(NSString *path);
+static id<AppineBackend> appine_create_backend_for_file(NSString *path) {
+    // 智能判断使用appine_create_quicklook_backend, appine_create_pdf_backend
+    // 或者 appine_create_web_backend
+    if (!path || path.length == 0) return nil;
+    
+    UTType *fileType = [UTType typeWithFilenameExtension:path.pathExtension];
+    
+    if ([fileType conformsToType:UTTypePDF]) {
+        return appine_create_pdf_backend(path);
+    } 
+    else if ([fileType conformsToType:UTTypeHTML] || 
+             [fileType conformsToType:UTTypeWebArchive]) {
+        NSURL *url = [NSURL fileURLWithPath:path];
+        return appine_create_web_backend(url.absoluteString);
+    } 
+    else {
+        BOOL isSafeForQuickLook = NO;
+        
+        if (fileType != nil) {
+            // 【白名单】
+            NSArray<UTType *> *safeTypes = @[
+                UTTypeContent, UTTypeText, UTTypeSourceCode,
+                UTTypeScript, UTTypeLog, UTTypeJSON, UTTypeXML
+            ];
+            for (UTType *safeType in safeTypes) {
+                if ([fileType conformsToType:safeType]) {
+                    isSafeForQuickLook = YES;
+                    break;
+                }
+            }
+            
+            // 【黑名单】
+            if ([fileType conformsToType:UTTypeExecutable] ||
+                [fileType conformsToType:UTTypeArchive] ||
+                [fileType conformsToType:UTTypeDiskImage] ||
+                [fileType conformsToType:UTTypeApplication] ||
+                [fileType conformsToType:UTTypePluginBundle] ||
+                [fileType conformsToType:UTTypeFramework] ||
+                [fileType conformsToType:UTTypeFolder]) {
+                isSafeForQuickLook = NO;
+            }
+        }
+        
+        if (isSafeForQuickLook) {
+            return appine_create_quicklook_backend(path);
+        } else {
+            NSString *ext = path.pathExtension.length > 0 ? path.pathExtension : @"无后缀/未知";
+            NSLog(@"[Appine] 拦截了不支持或可能导致崩溃的文件类型: %@", ext);
+            
+            NSAlert *alert = [[NSAlert alloc] init];
+            alert.messageText = @"不支持预览该文件";
+            alert.informativeText = [NSString stringWithFormat:@"Appine 无法安全地预览此类型的文件 (%@)。\n为防止底层渲染服务崩溃，已拦截此操作。", ext];
+            [alert runModal];
+            return nil;
+        }
+    }
+}
+
 
 static const CGFloat kAppineToolbarHeight = 34.0;
 static const CGFloat kAppineTabBarHeight = 28.0;
@@ -279,69 +337,7 @@ static void appine_add_tab(id<AppineBackend> backend);
     
     if ([panel runModal] == NSModalResponseOK && panel.URL) {
         NSString *path = panel.URL.path;
-        
-        // 获取文件类型，如果没有后缀名可能返回 nil
-        UTType *fileType = [UTType typeWithFilenameExtension:path.pathExtension];
-        
-        id<AppineBackend> backend;
-        
-        if ([fileType conformsToType:UTTypePDF]) {
-            backend = appine_create_pdf_backend(path);
-        } 
-        else if ([fileType conformsToType:UTTypeHTML] || 
-                 [fileType conformsToType:UTTypeWebArchive]) {
-            backend = appine_create_web_backend(panel.URL.absoluteString);
-        } 
-        // Quick Look 智能路由 (白名单 + 严格黑名单)
-        else {
-            BOOL isSafeForQuickLook = NO;
-            
-            if (fileType != nil) {
-                // 【白名单】允许的大类：内容（文档/图片/音视频）、文本、源代码、脚本等
-                NSArray<UTType *> *safeTypes = @[
-                    UTTypeContent,      // 涵盖了 Office, iWork, 图片, 音视频
-                    UTTypeText,         // 涵盖纯文本
-                    UTTypeSourceCode,   // 涵盖各种编程语言源码
-                    UTTypeScript,       // 涵盖脚本 (sh, py, js 等)
-                    UTTypeLog,          // 日志文件
-                    UTTypeJSON,
-                    UTTypeXML
-                ];
-                
-                for (UTType *safeType in safeTypes) {
-                    if ([fileType conformsToType:safeType]) {
-                        isSafeForQuickLook = YES;
-                        break;
-                    }
-                }
-                
-                // 【黑名单】拦截危险类型（防止某些类型多重继承导致误判）
-                if ([fileType conformsToType:UTTypeExecutable] ||  // 拦截 exe, dylib, so, dll, mach-o
-                    [fileType conformsToType:UTTypeArchive] ||     // 拦截 zip, rar, tar, 7z
-                    [fileType conformsToType:UTTypeDiskImage] ||   // 拦截 dmg, iso
-                    [fileType conformsToType:UTTypeApplication] || // 拦截 app
-                    [fileType conformsToType:UTTypePluginBundle] ||// 拦截 plugin
-                    [fileType conformsToType:UTTypeFramework] ||   // 拦截 framework
-                    [fileType conformsToType:UTTypeFolder]) {      // 拦截 文件夹
-                    
-                    isSafeForQuickLook = NO;
-                }
-            }
-            
-            if (isSafeForQuickLook) {
-                backend = appine_create_quicklook_backend(path);
-            } else {
-                NSString *ext = path.pathExtension.length > 0 ? path.pathExtension : @"无后缀/未知";
-                NSLog(@"[Appine] 拦截了不支持或可能导致崩溃的文件类型: %@", ext);
-                
-                NSAlert *alert = [[NSAlert alloc] init];
-                alert.messageText = @"不支持预览该文件";
-                alert.informativeText = [NSString stringWithFormat:@"Appine 无法安全地预览此类型的文件 (%@)。\n为防止底层渲染服务崩溃，已拦截此操作。", ext];
-                [alert runModal];
-                return;
-            }
-        }
-        
+        id<AppineBackend> backend = appine_create_backend_for_file(path);
         if (backend) {
             appine_add_tab(backend);
         }
@@ -568,22 +564,16 @@ int appine_core_open_web_in_rect(const char *url, int x, int y, int w, int h) {
     return 0;
 }
 
-int appine_core_open_pdf_in_rect(const char *path, int x, int y, int w, int h) {
-    NSString *pdfPath = path ? [NSString stringWithUTF8String:path] : @"";
-    dispatch_async(dispatch_get_main_queue(), ^{
-        appine_state().targetRect = NSMakeRect(x, y, w, h);
-        appine_ensure_container();
-        appine_add_tab(appine_create_pdf_backend(pdfPath));
-    });
-    return 0;
-}
-
-int appine_core_open_quicklook_in_rect(const char *path, int x, int y, int w, int h) {
+int appine_core_open_file_in_rect(const char *path, int x, int y, int w, int h) {
     NSString *filePath = path ? [NSString stringWithUTF8String:path] : @"";
     dispatch_async(dispatch_get_main_queue(), ^{
         appine_state().targetRect = NSMakeRect(x, y, w, h);
         appine_ensure_container();
-        appine_add_tab(appine_create_quicklook_backend(filePath));
+        
+        id<AppineBackend> backend = appine_create_backend_for_file(filePath);
+        if (backend) {
+            appine_add_tab(backend);
+        }
     });
     return 0;
 }

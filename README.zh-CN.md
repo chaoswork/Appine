@@ -19,6 +19,7 @@
 - **原生 Word/Excel 渲染**：使用 macOS 内置的 Quartz 查看 Word/Excel 文件，同样支持丝滑的滚动和缩放。不过目前还不支持编辑。
 - **无缝集成**：当你分割或调整 Emacs 窗口大小时，原生视图会自动调整大小和移动。
 - **标签页管理**：支持多个嵌入的标签页，可以直接在 Emacs 中进行切换和关闭。
+- **Org-mode集成**：可以使用 Appine 打开 Org 文件中的链接和文件。
 
 ## 📖 使用方法 (Usage)
 
@@ -44,20 +45,30 @@ https://github.com/user-attachments/assets/986af882-56e5-4ce4-b66d-1acde987c9ed
 
 https://github.com/user-attachments/assets/f63eff4e-754e-4d4f-b11c-aa9d3f982c67
 
-### 打开 PDF 文档 (Open a PDF Document)
-运行 `M-x appine-open-pdf-split`。选择一个 PDF 文件，它将使用 macOS PDFKit 进行渲染。
+### 打开 PDF 或者其他文档
+运行 `M-x appine-open-file-split`。选择一个 PDF 文件，它将使用 macOS PDFKit 进行渲染。选择其他文件则会使用 quicklook 进行预览。
 
 一段打开 PDF 的视频地址
 
-https://github.com/user-attachments/assets/fd33d767-37dd-4027-adae-823b32228c7e
+https://github.com/user-attachments/assets/f2dd6c5a-eabb-421b-8d2c-986540f230f6
+
+### Org-mode 集成
+
+当 `(setq appine-enable-open-in-org-mode t)` 的时候，会使用 Appine 打开 url 和文件。运行 `M-x appine-toggle-open-in-org-mode` 来开启或者关闭该功能。
+
+TODO：一段演示 org-mode 集成的视频
 
 ### 工具栏 (Toolbar)
 
 Toolbar 实现了一些 App 的常用操作，比如新建标签页 (New Tab)、打开文件 (Open File) 等，同时也包含了剪切/复制/粘贴等编辑操作。
 由于 Appine 引入了 macOS 的 Quick look Preview 模块，所以常用的文件基本上都可以预览。可以通过 Appine 窗口的 Open File 按钮来打开文件。
 
+复制粘贴的视频
+
+https://github.com/user-attachments/assets/fd33d767-37dd-4027-adae-823b32228c7e
+
 ### 窗口管理 (Window Management)
-原生视图与 Emacs buffer（例如 `*Appine*`）绑定。你可以分割窗口（`C-x 3`，`C-x 2`），调整它们的大小，或者切换 buffers。原生视图会自动跟踪 Emacs 窗口的几何形状。
+原生视图与 Emacs buffer（名为 `*Appine-Window*`）绑定。你可以分割窗口（`C-x 3`，`C-x 2`），调整它们的大小，或者切换 buffers。原生视图会自动跟踪 Emacs 窗口的几何形状。
 
 ## 📦 环境要求 (Requirements)
 
@@ -74,10 +85,13 @@ Toolbar 实现了一些 App 的常用操作，比如新建标签页 (New Tab)、
 ```elisp
 (use-package appine
   :straight (appine :type git :host github :repo "chaoswork/appine")
+  :custom
+  ;; 可选：使用 Appine 打开 org-mode 的文件或者链接，默认为关闭
+  (appine-enable-open-in-org-mode t) 
   :config
-  ;; 可选：设置默认快捷键
+  ;; 可选：设置默认快捷键  
   (global-set-key (kbd "C-x a w") 'appine-open-web-split)
-  (global-set-key (kbd "C-x a p") 'appine-open-pdf-split))
+  (global-set-key (kbd "C-x a o") 'appine-open-file-split))
 ```
 
 ### 方法 2：源码编译
