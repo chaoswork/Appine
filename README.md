@@ -10,16 +10,17 @@ English | [简体中文](./README.zh-CN.md)
 
 You can open a browser, read PDFs, listen to music, and watch videos in Emacs. Enjoy the full power of native macOS rendering, smooth scrolling, and hardware acceleration without leaving Emacs!
 
-Support for Windows and Linux systems will be considered in the future. The main reason is that I currently don't have a Windows computer, and the Linux distribution I use doesn't have a GUI, which makes it impossible for me to debug the plugin at present. Moreover, unlike macOS, Windows and Linux lack native system-level rendering frameworks for web pages, PDFs, and Office files, requiring third-party libraries to implement, which often introduces instability. Cross-platform libraries like Qt are often too massive and too heavy for a small Emacs plugin. If you really want to use browsers, PDFs, and other apps in Emacs, you can try the [EAF](https://github.com/emacs-eaf/emacs-application-framework) project.
 
 ## ✨ Features
 
+- **Use It Like an Emacs Buffer**: When Appine starts, it opens an embedded Appine Window tied to an \*Appine Window\* buffer. You can maximize it with `C-x 1`, close it with `C-x 0`, and switch between buffers with `C-x o`. You can also scroll through the embedded Appine Window using `C-n`, `C-p`, `C-v`, `M-v`, `M-<`, and `M->`, just as you would in an Emacs buffer.
 - **Native Web Browsing**: Embed a fully functional Safari-like WebKit view inside an Emacs window, with full support for cookies.
 - **Native PDF Rendering**: View PDFs with macOS's built-in PDFKit for buttery-smooth scrolling and zooming, and easily copy content from it to other Emacs buffers.
 - **Native Word/Excel Rendering**: View Word/Excel files with macOS's built-in Quartz for buttery-smooth scrolling and zooming. Unfortunately, you cannot edit them yet.
 - **Seamless Integration**: The native views automatically resize and move when you split or adjust Emacs windows.
 - **Tab Management**: Support for multiple embedded tabs, switching, and closing directly from Emacs.
 - **Org-mode Integration**: Use Appine to open links and files within Org files.
+
 
 ## 📖 Usage
 
@@ -120,8 +121,10 @@ If you prefer to build the module yourself, you need the Xcode Command Line Tool
 ## 🛠️ Continuous Improvement
 
 Appine uses Emacs Dynamic Modules to bridge C/Objective-C and Emacs Lisp. 
-To safely handle events triggered by the macOS UI thread (like clicking a button) without crashing Emacs, it uses a robust combination of POSIX signals (`SIGUSR1`) and C11 `atomic_bool` flags to safely interrupt Emacs's event loop and execute Lisp callbacks.
+
 The project is still under continuous improvement. If you encounter any problems, feel free to open an issue.
+
+Support for Windows and Linux systems will be considered in the future. The main reason is that I currently don't have a Windows computer, and the Linux distribution I use doesn't have a GUI, which makes it impossible for me to debug the plugin at present. Moreover, unlike macOS, Windows and Linux lack native system-level rendering frameworks for web pages, PDFs, and Office files, requiring third-party libraries to implement, which often introduces instability. Cross-platform libraries like Qt are often too massive and too heavy for a small Emacs plugin. If you use Linux or Windows and really want to use browsers, PDFs, and other apps in Emacs, you can try the [EAF](https://github.com/emacs-eaf/emacs-application-framework) project.
 
 ## 📄 License
 

@@ -10,10 +10,10 @@
 
 你可以在 Emacs 中打开浏览器、阅读 PDF、听音乐、看视频。无需离开 Emacs，即可享受 macOS 原生渲染、平滑滚动和硬件加速的全部威力！
 
-对于 Windows 和 Linux 系统，会在未来考虑支持。主要是我目前没有 Windows 的电脑，而使用的 Linux 并没有可视化界面，这让我目前没法调试插件。而且 Windows 和 Linux 不像 macOS 那样系统原生自带网页、PDF 和 Office 文件的渲染框架，需要借助于第三方库来实现，这往往会带来不稳定的问题。有些跨平台的库比如 Qt 等往往都特别庞大，对于一个小小的 Emacs 插件来说实在是过于笨重。如果特别想在 Emacs 中使用浏览器、PDF 等 App，可以尝试 [EAF](https://github.com/emacs-eaf/emacs-application-framework) 项目。
 
 ## ✨ 特性 (Features)
 
+- **把它当作 Emacs 缓冲区来用**: 当 Appine 启动的时候，嵌入的窗口会绑定在 \*Appine Window\* 这个 Buffer 上。又可以用 `C-x 1` 最大化，用 `C-x 0` 关闭，用 `C-x o` 在不同的 buffer 中切换。也可以使用 `C-n`, `C-p`, `C-v`, `M-v`, `M-<`, and `M->` 来对 Appine Window 进行滚屏操作。
 - **原生网页浏览**：在 Emacs 窗口中嵌入一个功能齐全的类似 Safari 的 WebKit 视图，而且支持 cookies。
 - **原生 PDF 渲染**：使用 macOS 内置的 PDFKit 查看 PDF，享受丝滑的滚动和缩放体验，而且可以方便地拷贝其中的内容到 Emacs 的其他 buffer。
 - **原生 Word/Excel 渲染**：使用 macOS 内置的 Quartz 查看 Word/Excel 文件，同样支持丝滑的滚动和缩放。不过目前还不支持编辑。
@@ -122,8 +122,10 @@ https://github.com/user-attachments/assets/fd33d767-37dd-4027-adae-823b32228c7e
 ## 🛠️ 持续完善
 
 Appine 使用 Emacs 动态模块来桥接 C/Objective-C 和 Emacs Lisp。
-为了安全地处理由 macOS UI 线程触发的事件（如点击按钮）而不导致 Emacs 崩溃，它使用了 POSIX 信号 (`SIGUSR1`) 和 C11 `atomic_bool` 标志的组合，以安全地中断 Emacs 的事件循环并执行 Lisp 回调。
+
 目前项目还在持续完善中，如果使用有问题，欢迎提 issue。
+
+对于 Windows 和 Linux 系统，会在未来考虑支持。主要是我目前没有 Windows 的电脑，而使用的 Linux 并没有可视化界面，这让我目前没法调试插件。而且 Windows 和 Linux 不像 macOS 那样系统原生自带网页、PDF 和 Office 文件的渲染框架，需要借助于第三方库来实现，这往往会带来不稳定的问题。有些跨平台的库比如 Qt 等往往都特别庞大，对于一个小小的 Emacs 插件来说实在是过于笨重。如果特别想在 Emacs 中使用浏览器、PDF 等 App，可以尝试 [EAF](https://github.com/emacs-eaf/emacs-application-framework) 项目。
 
 ## 📄 许可证 (License)
 
