@@ -10,10 +10,10 @@
 
 你可以在 Emacs 中打开浏览器、阅读 PDF、听音乐、看视频。无需离开 Emacs，即可享受 macOS 原生渲染、平滑滚动和硬件加速的全部威力！
 
-对于 Windows 和 Linux 系统，会在未来考虑支持。主要是我目前没有 Windows 的电脑，而使用的 Linux 并没有可视化界面，这让我目前没法调试插件。而且 Windows 和 Linux 不像 macOS 那样系统原生自带网页、PDF 和 Office 文件的渲染框架，需要借助于第三方库来实现，这往往会带来不稳定的问题。有些跨平台的库比如 Qt 等往往都特别庞大，对于一个小小的 Emacs 插件来说实在是过于笨重。如果特别想在 Emacs 中使用浏览器、PDF 等 App，可以尝试 [EAF](https://github.com/emacs-eaf/emacs-application-framework) 项目。
 
 ## ✨ 特性 (Features)
 
+- **把它当作 Emacs 缓冲区来用**: 当 Appine 启动的时候，嵌入的窗口会绑定在 \*Appine Window\* 这个 Buffer 上。可以用 `C-x 1` 最大化，用 `C-x 0` 关闭，用 `C-x o` 在不同的 buffer 中切换。也可以使用 `C-n`, `C-p`, `C-v`, `M-v`, `M-<`, and `M->` 来对 Appine Window 进行滚屏操作。
 - **原生网页浏览**：在 Emacs 窗口中嵌入一个功能齐全的类似 Safari 的 WebKit 视图，而且支持 cookies。
 - **原生 PDF 渲染**：使用 macOS 内置的 PDFKit 查看 PDF，享受丝滑的滚动和缩放体验，而且可以方便地拷贝其中的内容到 Emacs 的其他 buffer。
 - **原生 Word/Excel 渲染**：使用 macOS 内置的 Quartz 查看 Word/Excel 文件，同样支持丝滑的滚动和缩放。不过目前还不支持编辑。
@@ -23,22 +23,27 @@
 
 ## 📖 使用方法 (Usage)
 
+### 打开 Appine
+
+使用 `M-x appine` 打开 Appine Window. 如果是第一次打开，会显示一个简单的使用说明。
+
+你可以用 `M-x appine-close` 或者 `C-x 0` 来关闭窗口。如果你想重新打开，可以使用 `M-x appine`, 其实只需要把 \*Appine Window\* 打开即可。
+
+使用 `M-x appine-kill` 会彻底关掉嵌入的 Appine Window。
+
 ### 嵌入 App 的两种状态
 
 嵌入的 App 有两种状态：激活和未激活。
-- **激活状态**：点击嵌入的 App 可以进入到嵌入 App 的激活状态。当激活的时候可以像 Mac 原生 App 那样使用。此时 Emacs 被锁定。
-- **非激活状态**：当鼠标点击其他 Emacs 的 buffer 的时候，嵌入的 App 会被锁定且变灰，无法使用。此时可以正常地使用 Emacs。如果原生视图当前拥有焦点，你可以点击 **Deactivate** 按钮（或使用配置的快捷键）安全地将焦点交还给 Emacs，并将视图拆分为并排布局。
+- **激活状态**：当 \*Appine Window\* Buffer 被激活时，可以像 Mac 原生 App 那样使用。
+- **非激活状态**：当 \*Appine Window\* 未被激活时，嵌入的 App 会被锁定且变灰，无法使用。此时可以正常地使用 Emacs。
 
 一段演示两种状态的视频地址:
 
 https://github.com/user-attachments/assets/a7eaf65a-da9b-45ee-9b24-ca835379fc34
 
-deactivate:
-
-https://github.com/user-attachments/assets/986af882-56e5-4ce4-b66d-1acde987c9ed
-
 
 ### 打开网页 (Open a Web Page)
+
 运行 `M-x appine-open-url`。系统会提示你输入一个 URL。一个原生的 WebKit 视图将在当前的 Emacs 窗口中打开。一段演示视频如下：
 
 一段 Open Web Page 的视频地址
@@ -68,6 +73,7 @@ Toolbar 实现了一些 App 的常用操作，比如新建标签页 (New Tab)、
 https://github.com/user-attachments/assets/fd33d767-37dd-4027-adae-823b32228c7e
 
 ### 窗口管理 (Window Management)
+
 原生视图与 Emacs buffer（名为 `*Appine-Window*`）绑定。你可以分割窗口（`C-x 3`，`C-x 2`），调整它们的大小，或者切换 buffers。原生视图会自动跟踪 Emacs 窗口的几何形状。
 
 ## 📦 环境要求 (Requirements)
@@ -122,8 +128,10 @@ https://github.com/user-attachments/assets/fd33d767-37dd-4027-adae-823b32228c7e
 ## 🛠️ 持续完善
 
 Appine 使用 Emacs 动态模块来桥接 C/Objective-C 和 Emacs Lisp。
-为了安全地处理由 macOS UI 线程触发的事件（如点击按钮）而不导致 Emacs 崩溃，它使用了 POSIX 信号 (`SIGUSR1`) 和 C11 `atomic_bool` 标志的组合，以安全地中断 Emacs 的事件循环并执行 Lisp 回调。
+
 目前项目还在持续完善中，如果使用有问题，欢迎提 issue。
+
+对于 Windows 和 Linux 系统，会在未来考虑支持。主要是我目前没有 Windows 的电脑，而使用的 Linux 并没有可视化界面，这让我目前没法调试插件。而且 Windows 和 Linux 不像 macOS 那样系统原生自带网页、PDF 和 Office 文件的渲染框架，需要借助于第三方库来实现，这往往会带来不稳定的问题。有些跨平台的库比如 Qt 等往往都特别庞大，对于一个小小的 Emacs 插件来说实在是过于笨重。如果特别想在 Emacs 中使用浏览器、PDF 等 App，可以尝试 [EAF](https://github.com/emacs-eaf/emacs-application-framework) 项目。
 
 ## 📄 许可证 (License)
 

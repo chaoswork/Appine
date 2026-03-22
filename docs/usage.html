@@ -53,11 +53,13 @@
 macOS views directly inside Emacs windows.</p>
 <p>When Appine starts, it opens an embedded Appine Window tied to an
 *Appine Window* buffer. You can maximize it with <code>C-x 1</code>,
-close it with <code>C-x 0</code>, and switch between buffers with
-<code>C-x o</code>. You can also scroll through the embedded Appine
-Window using <code>C-n</code>, <code>C-p</code>, <code>C-v</code>,
-<code>M-v</code>, <code>M-&lt;</code>, and <code>M-&gt;</code>, just as
-you would in an Emacs buffer.</p>
+close it with <code>C-x 0</code>, switch between buffers with
+<code>C-x o</code>. If you close it, you can reopen it with
+<code>C-x b</code> by switching to the <em>Appine Window</em> buffer.
+You can also scroll through the embedded Appine Window using
+<code>C-n</code>, <code>C-p</code>, <code>C-v</code>, <code>M-v</code>,
+<code>M-&lt;</code>, and <code>M-&gt;</code>, just as you would in an
+Emacs buffer.</p>
 <h2 id="commands-m-x">Commands (M-x)</h2>
 <ul>
 <li><code>appine</code>: Open Appine Window and show the usage.</li>
@@ -70,6 +72,7 @@ between tabs.</li>
 <li><code>appine-close</code>: Close Appine. This only closes the
 embedded view; the *Appine Buffer* remains in the background. You can
 reopen the *Appine Buffer* at any time to restore the view.</li>
+<li><code>appine-kill</code>: kill the Appine window completely.</li>
 </ul>
 <h2 id="shortcuts-when-focused">Shortcuts (When Focused)</h2>
 <p>Although there is a toolbar at the top, most common operations
