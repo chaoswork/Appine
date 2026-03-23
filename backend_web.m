@@ -32,7 +32,7 @@ extern void appine_core_add_web_tab(NSString *urlString);
 @end
 
 // ===========================================================================
-// AppineWebView (纯原生右键菜单劫持 - 修复死循环版)
+// AppineWebView (纯原生右键菜单劫持)
 // ===========================================================================
 @interface AppineWebView : WKWebView
 @property (nonatomic, assign) BOOL isInterceptingDownload;
@@ -382,6 +382,44 @@ extern void appine_core_add_web_tab(NSString *urlString);
     // 返回 nil 表示我们不提供一个新的 WKWebView 实例给系统去渲染，
     // 而是由我们自己的 Tab 系统接管了这个 URL。
     return nil;
+}
+
+// upload file (<input type="file">)
+- (void)webView:(WKWebView *)webView runOpenPanelWithParameters:(WKOpenPanelParameters *)parameters initiatedByFrame:(WKFrameInfo *)frame completionHandler:(void (^)(NSArray<NSURL *> * _Nullable URLs))completionHandler {
+    
+    NSLog(@"[Appine-Upload] 1. 网页请求打开文件选择面板 (runOpenPanelWithParameters)");
+    NSLog(@"[Appine-Upload] 2. 参数 - 是否允许多选: %@, 是否允许选目录: %@", 
+          parameters.allowsMultipleSelection ? @"YES" : @"NO", 
+          parameters.allowsDirectories ? @"YES" : @"NO");
+    
+    // 必须在主线程弹出 UI
+    dispatch_async(dispatch_get_main_queue(), ^{
+        NSOpenPanel *openPanel = [NSOpenPanel openPanel];
+        openPanel.canChooseFiles = YES;
+        openPanel.canChooseDirectories = parameters.allowsDirectories;
+        openPanel.allowsMultipleSelection = parameters.allowsMultipleSelection;
+        openPanel.message = @"请选择要上传的文件";
+        
+        // 确保应用被激活，防止文件选择面板被挡在其他窗口后面
+        [NSApp activateIgnoringOtherApps:YES];
+        
+        NSLog(@"[Appine-Upload] 3. 正在展示 NSOpenPanel...");
+        [openPanel beginWithCompletionHandler:^(NSModalResponse result) {
+            if (result == NSModalResponseOK) {
+                NSArray<NSURL *> *selectedURLs = openPanel.URLs;
+                NSLog(@"[Appine-Upload] 4. 用户成功选择了 %lu 个文件", (unsigned long)selectedURLs.count);
+                for (NSURL *url in selectedURLs) {
+                    NSLog(@"[Appine-Upload] ---> 选中文件路径: %@", url.path);
+                }
+                // 将选中的文件 URL 数组回调给 WKWebView
+                completionHandler(selectedURLs);
+            } else {
+                NSLog(@"[Appine-Upload] 4. 用户取消了文件选择");
+                // 必须调用 completionHandler 并传入 nil，否则 WKWebView 会卡死或崩溃
+                completionHandler(nil);
+            }
+        }];
+    });
 }
 
 #pragma mark - WKDownloadDelegate
