@@ -205,6 +205,26 @@ static NSView *appine_find_scroll_target(NSView *view) {
 
     return nil;
 }
+// 递归查找真正需要接收键盘焦点的视图 (WKWebView 或 PDFView)
+static NSView *appine_find_focus_target(NSView *view) {
+    if (!view) return nil;
+
+    // 1. 如果本身就是 WKWebView 或 PDFView，直接返回
+    if ([view isKindOfClass:NSClassFromString(@"WKWebView")] ||
+        [view isKindOfClass:NSClassFromString(@"PDFView")]) {
+        return view;
+    }
+    // 2. 递归查找子视图
+    for (NSView *subview in view.subviews) {
+        NSView *found = appine_find_focus_target(subview);
+        if ([found isKindOfClass:NSClassFromString(@"WKWebView")] ||
+            [found isKindOfClass:NSClassFromString(@"PDFView")]) {
+            return found;
+        }
+    }
+    // 3. 兜底返回原视图
+    return view;
+}
 
 static AppineTabItem *appine_find_tab(NSInteger tabId) {
     for (AppineTabItem *item in appine_state().tabs) {
@@ -219,8 +239,11 @@ static void appine_restore_focus_if_active(void) {
     if (state.isActive && state.hostWindow) {
         AppineTabItem *active = appine_find_tab(state.activeTabId);
         if (active && active.backend && active.backend.view) {
-            APPINE_LOG(@"Restoring focus to backend view: %@", [active.backend.view className]);
-            [state.hostWindow makeFirstResponder:active.backend.view];
+            // 查找真正的焦点目标，而不是把焦点给 NSView 容器
+            NSView *focusTarget = appine_find_focus_target(active.backend.view);
+            APPINE_LOG(@"Restoring focus. Backend view: %@, Focus target: %@", 
+                       [active.backend.view className], [focusTarget className]);
+            [state.hostWindow makeFirstResponder:focusTarget];
         }
     }
 }
@@ -802,8 +825,9 @@ static void appine_set_active(BOOL active) {
         if (!isAppineFocused) {
             AppineTabItem *tab = appine_find_tab(state.activeTabId);
             if (tab && tab.backend.view) {
-                APPINE_LOG(@"Forcing FirstResponder to backend view: %@", [tab.backend.view className]);
-                [state.hostWindow makeFirstResponder:tab.backend.view];
+                NSView *focusTarget = appine_find_focus_target(tab.backend.view);
+                APPINE_LOG(@"Forcing FirstResponder to target view: %@", [focusTarget className]);
+                [state.hostWindow makeFirstResponder:focusTarget];
             }
         }
     } else {
