@@ -26,9 +26,94 @@
 
 extern void appine_core_add_web_tab(NSString *urlString);
 
-@interface AppineWebBackend : NSObject <AppineBackend, WKNavigationDelegate, WKUIDelegate, NSTextFieldDelegate>
-@property (nonatomic, strong) NSView *containerView; // 复合视图容器
-@property (nonatomic, strong) WKWebView *webView;
+// 声明 WKWebView 的私有方法，避免编译器警告
+@interface WKWebView (AppinePrivate)
+- (void)willOpenMenu:(NSMenu *)menu withEvent:(NSEvent *)event;
+@end
+
+// ===========================================================================
+// AppineWebView (纯原生右键菜单劫持 - 修复死循环版)
+// ===========================================================================
+@interface AppineWebView : WKWebView
+@property (nonatomic, assign) BOOL isInterceptingDownload;
+@end
+
+@implementation AppineWebView
+
+// 拦截真正的菜单弹出时机
+- (void)willOpenMenu:(NSMenu *)menu withEvent:(NSEvent *)event {
+    NSLog(@"[Appine-Menu] 1. willOpenMenu:withEvent: called");
+    
+    NSMenuItem *openLinkItem = nil;
+    NSMenuItem *openImageItem = nil;
+    
+    NSLog(@"[Appine-Menu] --- Listing native menu items ---");
+    for (NSMenuItem *item in menu.itemArray) {
+        NSLog(@"[Appine-Menu] Item ID: '%@', Title: '%@'", item.identifier, item.title);
+        if ([item.identifier isEqualToString:@"WKMenuItemIdentifierOpenLinkInNewWindow"]) {
+            openLinkItem = item;
+        } else if ([item.identifier isEqualToString:@"WKMenuItemIdentifierOpenImageInNewWindow"]) {
+            openImageItem = item;
+        }
+    }
+    NSLog(@"[Appine-Menu] ---------------------------------");
+    
+    for (NSMenuItem *item in menu.itemArray) {
+        if ([item.identifier isEqualToString:@"WKMenuItemIdentifierDownloadLinkedFile"]) {
+            if (openLinkItem) {
+                NSLog(@"[Appine-Menu] 2. Successfully hijacked 'DownloadLinkedFile'");
+                item.target = self;
+                item.action = @selector(interceptDownloadAction:);
+                item.representedObject = openLinkItem;
+            }
+        } else if ([item.identifier isEqualToString:@"WKMenuItemIdentifierDownloadImage"]) {
+            if (openImageItem) {
+                NSLog(@"[Appine-Menu] 2. Successfully hijacked 'DownloadImage'");
+                item.target = self;
+                item.action = @selector(interceptDownloadAction:);
+                item.representedObject = openImageItem;
+            }
+        }
+    }
+    
+    // 修复死循环：直接使用 super 调用，不要使用 performSelector
+    if ([WKWebView instancesRespondToSelector:@selector(willOpenMenu:withEvent:)]) {
+        [super willOpenMenu:menu withEvent:event];
+    }
+}
+
+- (void)interceptDownloadAction:(NSMenuItem *)sender {
+    NSLog(@"[Appine-Menu] 3. interceptDownloadAction: triggered!");
+    NSMenuItem *originalOpenItem = sender.representedObject;
+    
+    self.isInterceptingDownload = YES;
+    NSLog(@"[Appine-Menu] isInterceptingDownload set to YES");
+    
+    if (originalOpenItem.target && originalOpenItem.action) {
+        NSLog(@"[Appine-Menu] 4. Simulating click on: %@", originalOpenItem.identifier);
+        void (*action)(id, SEL, id) = (void (*)(id, SEL, id))[originalOpenItem.target methodForSelector:originalOpenItem.action];
+        if (action) {
+            action(originalOpenItem.target, originalOpenItem.action, originalOpenItem);
+        } else {
+            NSLog(@"[Appine-Menu] ERROR: Failed to get action method pointer");
+        }
+    } else {
+        NSLog(@"[Appine-Menu] ERROR: originalOpenItem missing target or action");
+    }
+    
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        self.isInterceptingDownload = NO;
+        NSLog(@"[Appine-Menu] isInterceptingDownload reset to NO (timeout)");
+    });
+}
+@end
+
+// ===========================================================================
+// AppineWebBackend
+// ===========================================================================
+@interface AppineWebBackend : NSObject <AppineBackend, WKNavigationDelegate, WKUIDelegate, NSTextFieldDelegate, WKDownloadDelegate>
+@property (nonatomic, strong) NSView *containerView;
+@property (nonatomic, strong) AppineWebView *webView;
 @property (nonatomic, strong) NSTextField *urlField;
 @property (nonatomic, strong) NSButton *backBtn;
 @property (nonatomic, strong) NSButton *forwardBtn;
@@ -84,7 +169,6 @@ extern void appine_core_add_web_tab(NSString *urlString);
     separator.wantsLayer = YES;
     separator.layer.backgroundColor = [NSColor gridColor].CGColor;
     [navBar addSubview:separator];
-    
     [_containerView addSubview:navBar];
     
     // 3. 添加导航按钮 (<, >, ↻)
@@ -143,13 +227,12 @@ extern void appine_core_add_web_tab(NSString *urlString);
                                                   forMainFrameOnly:YES];
     [config.userContentController addUserScript:wkUScript];
     
-    _webView = [[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600 - navHeight) configuration:config];
-    
+    _webView = [[AppineWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600 - navHeight) configuration:config];
     // 2. 伪装成标准的 Mac Safari 浏览器
     // 防止 Google、GitHub 等网站以“不安全的嵌入式浏览器”为由拒绝你登录。
     _webView.customUserAgent = @"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.3 Safari/605.1.15";
-    
     _webView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+    
     _webView.navigationDelegate = self;
     _webView.UIDelegate = self;
     [_containerView addSubview:_webView];
@@ -182,7 +265,6 @@ extern void appine_core_add_web_tab(NSString *urlString);
     }
 
     NSURL *url = nil;
-
     if (isSearch) {
         // 构建 Google 搜索 URL，并对搜索词进行 URLEncode
         NSString *encodedQuery = [input stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLQueryAllowedCharacterSet]];
@@ -229,12 +311,67 @@ extern void appine_core_add_web_tab(NSString *urlString);
     }
 }
 
+#pragma mark - WKNavigationDelegate (Downloads)
+
+- (void)webView:(WKWebView *)webView decidePolicyForNavigationAction:(WKNavigationAction *)navigationAction decisionHandler:(void (^)(WKNavigationActionPolicy))decisionHandler {
+    if (@available(macOS 11.3, *)) {
+        if (navigationAction.shouldPerformDownload) {
+            decisionHandler(WKNavigationActionPolicyDownload);
+            return;
+        }
+    }
+    decisionHandler(WKNavigationActionPolicyAllow);
+}
+
+- (void)webView:(WKWebView *)webView decidePolicyForNavigationResponse:(WKNavigationResponse *)navigationResponse decisionHandler:(void (^)(WKNavigationResponsePolicy))decisionHandler {
+    if (@available(macOS 11.3, *)) {
+        if (!navigationResponse.canShowMIMEType) {
+            decisionHandler(WKNavigationResponsePolicyDownload);
+            return;
+        }
+    }
+    decisionHandler(WKNavigationResponsePolicyAllow);
+}
+
+- (void)webView:(WKWebView *)webView navigationAction:(WKNavigationAction *)navigationAction didBecomeDownload:(WKDownload *)download API_AVAILABLE(macos(11.3)) {
+    download.delegate = self;
+}
+
+- (void)webView:(WKWebView *)webView navigationResponse:(WKNavigationResponse *)navigationResponse didBecomeDownload:(WKDownload *)download API_AVAILABLE(macos(11.3)) {
+    download.delegate = self;
+}
+
 #pragma mark - WKUIDelegate
 
 - (WKWebView *)webView:(WKWebView *)webView createWebViewWithConfiguration:(WKWebViewConfiguration *)configuration forNavigationAction:(WKNavigationAction *)navigationAction windowFeatures:(WKWindowFeatures *)windowFeatures {
-
-    // 如果 targetFrame 为空（说明是 target="_blank"）或者不是主 Frame
+    
+    NSLog(@"[Appine-Menu] 5. createWebViewWithConfiguration: called, URL: %@", navigationAction.request.URL);
+    
+    if ([webView isKindOfClass:[AppineWebView class]]) {
+        AppineWebView *appineWebView = (AppineWebView *)webView;
+        NSLog(@"[Appine-Menu] isInterceptingDownload: %d", appineWebView.isInterceptingDownload);
+        
+        if (appineWebView.isInterceptingDownload) {
+            NSLog(@"[Appine-Menu] 6. INTERCEPTED! Converting new window request to download task.");
+            appineWebView.isInterceptingDownload = NO;
+            if (@available(macOS 11.3, *)) {
+                [webView startDownloadUsingRequest:navigationAction.request completionHandler:^(WKDownload * _Nonnull download) {
+                    download.delegate = self;
+                }];
+            }
+            return nil; 
+        }
+    }
+    
     if (!navigationAction.targetFrame.isMainFrame) {
+        if (@available(macOS 11.3, *)) {
+            if (navigationAction.shouldPerformDownload) {
+                [webView startDownloadUsingRequest:navigationAction.request completionHandler:^(WKDownload * _Nonnull download) {
+                    download.delegate = self;
+                }];
+                return nil;
+            }
+        }
         NSURL *url = navigationAction.request.URL;
         if (url) {
             // 调用 appine_core.m 提供的接口，在 Appine 中创建一个新的 Tab
@@ -245,6 +382,36 @@ extern void appine_core_add_web_tab(NSString *urlString);
     // 返回 nil 表示我们不提供一个新的 WKWebView 实例给系统去渲染，
     // 而是由我们自己的 Tab 系统接管了这个 URL。
     return nil;
+}
+
+#pragma mark - WKDownloadDelegate
+
+- (void)download:(WKDownload *)download decideDestinationUsingResponse:(NSURLResponse *)response suggestedFilename:(NSString *)suggestedFilename completionHandler:(void (^)(NSURL * _Nullable))completionHandler API_AVAILABLE(macos(11.3)) {
+    
+    dispatch_async(dispatch_get_main_queue(), ^{
+        NSSavePanel *savePanel = [NSSavePanel savePanel];
+        savePanel.canCreateDirectories = YES;
+        savePanel.nameFieldStringValue = suggestedFilename ?: @"download";
+        
+        [NSApp activateIgnoringOtherApps:YES];
+        
+        [savePanel beginWithCompletionHandler:^(NSModalResponse result) {
+            if (result == NSModalResponseOK) {
+                NSLog(@"[Appine] Download started: %@", savePanel.URL.path);
+                completionHandler(savePanel.URL);
+            } else {
+                completionHandler(nil);
+            }
+        }];
+    });
+}
+
+- (void)downloadDidFinish:(WKDownload *)download API_AVAILABLE(macos(11.3)) {
+    NSLog(@"[Appine] Download finished successfully.");
+}
+
+- (void)download:(WKDownload *)download didFailWithError:(NSError *)error expectedResumeData:(NSData *)resumeData API_AVAILABLE(macos(11.3)) {
+    NSLog(@"[Appine] Download failed: %@", error.localizedDescription);
 }
 
 #pragma mark - AppineBackend Protocol

@@ -31,13 +31,7 @@
 // ===========================================================================
 // Log module, for debug
 // ===========================================================================
-static BOOL g_appine_debug_log = NO;
-
-#define APPINE_LOG(fmt, ...) do { \
-    if (g_appine_debug_log) { \
-        NSLog((@"[appine] " fmt), ##__VA_ARGS__); \
-    } \
-} while(0)
+BOOL g_appine_debug_log = NO;
 
 void appine_core_set_debug_log(int enable) {
     g_appine_debug_log = (enable != 0);
