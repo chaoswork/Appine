@@ -413,7 +413,22 @@ static void appine_add_tab(id<AppineBackend> backend);
 - (void)cut:(id)sender { (void)sender; [self focusAndSendAction:@selector(cut:)]; }
 - (void)copy:(id)sender { (void)sender; [self focusAndSendAction:@selector(copy:)]; }
 - (void)paste:(id)sender { (void)sender; [self focusAndSendAction:@selector(paste:)]; }
-- (void)find:(id)sender { (void)sender; [self focusAndSendAction:@selector(performFindPanelAction:)]; }
+- (void)find:(id)sender {
+    (void)sender;
+    appine_set_active(YES);
+    
+    // 直接调用当前活跃 backend 的 toggleFindBar
+    AppineState *state = appine_state();
+    AppineTabItem *active = appine_find_tab(state.activeTabId);
+    
+    if (active && active.backend &&
+        [active.backend respondsToSelector:@selector(toggleFindBar)]) {
+        [active.backend toggleFindBar];
+        APPINE_LOG(@"[appine] toggleFindBar called on backend");
+    } else {
+        APPINE_LOG(@"[appine] active backend does not support find bar");
+    }
+}
 
 // PDF 的方向和正常是相反的, interesting...
 - (BOOL)scrollPageDown:(id)sender {

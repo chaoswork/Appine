@@ -119,6 +119,15 @@ extern void appine_core_add_web_tab(NSString *urlString);
 @property (nonatomic, strong) NSButton *forwardBtn;
 @property (nonatomic, strong) NSButton *reloadBtn;
 @property (nonatomic, copy) NSString *title;
+
+// ---- Find Bar 相关属性 ----
+@property (nonatomic, strong) NSView *findBarView;
+@property (nonatomic, strong) NSTextField *findTextField;
+@property (nonatomic, strong) NSTextField *findStatusLabel;
+@property (nonatomic, assign) BOOL findBarVisible;
+@property (nonatomic, copy) NSString *currentFindString;
+
+- (void)toggleFindBar; // 供 appine_core 调用
 @end
 
 @implementation AppineWebBackend
@@ -131,7 +140,11 @@ extern void appine_core_add_web_tab(NSString *urlString);
     self = [super init];
     if (self) {
         _title = @"Web";
+        _findBarVisible = NO;
+        _currentFindString = @"";
+        
         [self setupUI];
+        [self setupFindBar]; // 初始化 Find Bar
         [self loadURL:urlString];
         
         // 使用 KVO 监听 WebView 状态，替代定时器
@@ -204,11 +217,9 @@ extern void appine_core_add_web_tab(NSString *urlString);
     WKWebViewConfiguration *config = [[WKWebViewConfiguration alloc] init];
     
     // 1. 强制使用系统的默认持久化数据存储（保存 Cookie、LocalStorage、Session 等）
-    // 这样 Emacs 重启后，登录状态依然存在。
     config.websiteDataStore = [WKWebsiteDataStore defaultDataStore];
     
     // 注入 JS：保留 PC 布局，但当网页过宽时，自动等比例缩小 (Zoom) 以适应当前窗口
-    // 尝试过伪装成 ipad 来自适应，但是效果一般。
     NSString *jScript = @"function autoFit() { "
                          "  if(!document.documentElement) return; "
                          "  document.documentElement.style.zoom = 1.0; "
@@ -229,13 +240,210 @@ extern void appine_core_add_web_tab(NSString *urlString);
     
     _webView = [[AppineWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600 - navHeight) configuration:config];
     // 2. 伪装成标准的 Mac Safari 浏览器
-    // 防止 Google、GitHub 等网站以“不安全的嵌入式浏览器”为由拒绝你登录。
     _webView.customUserAgent = @"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.3 Safari/605.1.15";
     _webView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
     
     _webView.navigationDelegate = self;
     _webView.UIDelegate = self;
     [_containerView addSubview:_webView];
+}
+
+// ===========================================================================
+// Find Bar 界面构建与逻辑
+// ===========================================================================
+- (void)setupFindBar {
+    CGFloat findBarHeight = 32.0;
+    CGFloat navHeight = 32.0;
+    NSRect containerFrame = self.containerView.frame;
+    
+    // Find Bar 位于 NavBar 正下方
+    _findBarView = [[NSView alloc] initWithFrame:NSMakeRect(0, containerFrame.size.height - navHeight - findBarHeight, containerFrame.size.width, findBarHeight)];
+    _findBarView.autoresizingMask = NSViewWidthSizable | NSViewMinYMargin;
+    _findBarView.wantsLayer = YES;
+    _findBarView.layer.backgroundColor = [NSColor controlBackgroundColor].CGColor;
+    _findBarView.hidden = YES;
+    
+    // 顶部分割线
+    NSView *separator = [[NSView alloc] initWithFrame:NSMakeRect(0, findBarHeight - 1, containerFrame.size.width, 1)];
+    separator.autoresizingMask = NSViewWidthSizable | NSViewMinYMargin;
+    separator.wantsLayer = YES;
+    separator.layer.backgroundColor = [NSColor gridColor].CGColor;
+    [_findBarView addSubview:separator];
+    
+    // 关闭按钮
+    NSButton *closeBtn = [NSButton buttonWithTitle:@"✕" target:self action:@selector(closeFindBar:)];
+    closeBtn.frame = NSMakeRect(10, 5, 24, 22);
+    closeBtn.bezelStyle = NSBezelStyleTexturedRounded;
+    [_findBarView addSubview:closeBtn];
+    
+    // 搜索输入框
+    _findTextField = [[NSTextField alloc] initWithFrame:NSMakeRect(40, 5, 200, 22)];
+    _findTextField.placeholderString = @"Find in page...";
+    _findTextField.delegate = self; // 绑定 Delegate 以支持实时搜索和快捷键
+    _findTextField.target = self;
+    _findTextField.action = @selector(findTextFieldAction:);
+    _findTextField.focusRingType = NSFocusRingTypeNone;
+    [_findBarView addSubview:_findTextField];
+    
+    // 状态标签
+    _findStatusLabel = [NSTextField labelWithString:@""];
+    _findStatusLabel.frame = NSMakeRect(250, 5, 80, 22);
+    _findStatusLabel.textColor = [NSColor secondaryLabelColor];
+    [_findBarView addSubview:_findStatusLabel];
+    
+    // 上一个按钮
+    NSButton *prevBtn = [NSButton buttonWithTitle:@"▲" target:self action:@selector(findPrevious:)];
+    prevBtn.frame = NSMakeRect(340, 4, 28, 24);
+    prevBtn.bezelStyle = NSBezelStyleTexturedRounded;
+    [_findBarView addSubview:prevBtn];
+    
+    // 下一个按钮
+    NSButton *nextBtn = [NSButton buttonWithTitle:@"▼" target:self action:@selector(findNext:)];
+    nextBtn.frame = NSMakeRect(370, 4, 28, 24);
+    nextBtn.bezelStyle = NSBezelStyleTexturedRounded;
+    [_findBarView addSubview:nextBtn];
+    
+    [self.containerView addSubview:_findBarView];
+}
+
+- (void)toggleFindBar {
+    if (self.findBarVisible) {
+        [self closeFindBar:nil];
+    } else {
+        [self showFindBar];
+    }
+}
+
+- (void)showFindBar {
+    if (self.findBarVisible) {
+        [self.findTextField.window makeFirstResponder:self.findTextField];
+        return;
+    }
+    
+    self.findBarVisible = YES;
+    self.findBarView.hidden = NO;
+    
+    // 动态压缩 WebView 的高度，腾出 Find Bar 的空间
+    CGFloat findBarHeight = 32.0;
+    NSRect webFrame = self.webView.frame;
+    webFrame.size.height -= findBarHeight;
+    self.webView.frame = webFrame;
+    
+    [self.findTextField.window makeFirstResponder:self.findTextField];
+    if (self.findTextField.stringValue.length > 0) {
+        [self.findTextField selectText:nil];
+    }
+}
+
+- (void)closeFindBar:(id)sender {
+    if (!self.findBarVisible) return;
+    
+    self.findBarVisible = NO;
+    self.findBarView.hidden = YES;
+    
+    // 恢复 WebView 的高度
+    CGFloat findBarHeight = 32.0;
+    NSRect webFrame = self.webView.frame;
+    webFrame.size.height += findBarHeight;
+    self.webView.frame = webFrame;
+    
+    // 清除页面高亮
+    if (@available(macOS 12.0, *)) {
+        WKFindConfiguration *config = [[WKFindConfiguration alloc] init];
+        [self.webView findString:@"" withConfiguration:config completionHandler:^(WKFindResult *result) {}];
+    }
+    
+    self.findStatusLabel.stringValue = @"";
+    self.currentFindString = @"";
+    
+    // 焦点还给 WebView
+    [self.webView.window makeFirstResponder:self.webView];
+}
+
+- (void)performFindWithString:(NSString *)searchString backwards:(BOOL)backwards {
+    if (!searchString || searchString.length == 0) {
+        self.findStatusLabel.stringValue = @"";
+        if (@available(macOS 12.0, *)) {
+            WKFindConfiguration *config = [[WKFindConfiguration alloc] init];
+            [self.webView findString:@"" withConfiguration:config completionHandler:^(WKFindResult *result) {}];
+        }
+        return;
+    }
+    
+    self.currentFindString = searchString;
+    
+    if (@available(macOS 12.0, *)) {
+        WKFindConfiguration *config = [[WKFindConfiguration alloc] init];
+        config.caseSensitive = NO;
+        config.wraps = YES;
+        config.backwards = backwards;
+        
+        [self.webView findString:searchString withConfiguration:config completionHandler:^(WKFindResult *result) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                if (result.matchFound) {
+                    self.findStatusLabel.stringValue = @"Found";
+                    self.findStatusLabel.textColor = [NSColor secondaryLabelColor];
+                } else {
+                    self.findStatusLabel.stringValue = @"Not found";
+                    self.findStatusLabel.textColor = [NSColor systemRedColor];
+                }
+            });
+        }];
+    } else {
+        // macOS 12 以下的 fallback：使用 JavaScript
+        NSString *escaped = [searchString stringByReplacingOccurrencesOfString:@"\\" withString:@"\\\\"];
+        escaped = [escaped stringByReplacingOccurrencesOfString:@"'" withString:@"\\'"];
+        NSString *js = [NSString stringWithFormat:@"window.find('%@', false, %@, true)", escaped, backwards ? @"true" : @"false"];
+        [self.webView evaluateJavaScript:js completionHandler:^(id result, NSError *error) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                BOOL found = [result boolValue];
+                self.findStatusLabel.stringValue = found ? @"Found" : @"Not found";
+                self.findStatusLabel.textColor = found ? [NSColor secondaryLabelColor] : [NSColor systemRedColor];
+            });
+        }];
+    }
+}
+
+- (void)findTextFieldAction:(id)sender {
+    [self performFindWithString:self.findTextField.stringValue backwards:NO];
+}
+
+- (void)findPrevious:(id)sender {
+    [self performFindWithString:self.findTextField.stringValue backwards:YES];
+}
+
+- (void)findNext:(id)sender {
+    [self performFindWithString:self.findTextField.stringValue backwards:NO];
+}
+
+#pragma mark - NSTextFieldDelegate (Find Bar 实时搜索与快捷键)
+
+- (void)controlTextDidChange:(NSNotification *)notification {
+    NSTextField *field = notification.object;
+    if (field == self.findTextField) {
+        [self performFindWithString:self.findTextField.stringValue backwards:NO];
+    }
+}
+
+- (BOOL)control:(NSControl *)control textView:(NSTextView *)textView doCommandBySelector:(SEL)commandSelector {
+    if (control == self.findTextField) {
+        // ESC -> 关闭 Find Bar
+        if (commandSelector == @selector(cancelOperation:)) {
+            [self closeFindBar:nil];
+            return YES;
+        }
+        // Enter -> 查找下一个 (Shift+Enter -> 查找上一个)
+        if (commandSelector == @selector(insertNewline:)) {
+            NSUInteger flags = [NSEvent modifierFlags];
+            if (flags & NSEventModifierFlagShift) {
+                [self findPrevious:nil];
+            } else {
+                [self findNext:nil];
+            }
+            return YES;
+        }
+    }
+    return NO;
 }
 
 #pragma mark - Actions
