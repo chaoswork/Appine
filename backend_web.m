@@ -23,6 +23,9 @@
 #import <Cocoa/Cocoa.h>
 #import <WebKit/WebKit.h>
 #import "appine_backend.h"
+#import <dlfcn.h>
+
+static void dylib_dummy_symbol() {} // locate path
 
 extern void appine_core_add_web_tab(NSString *urlString);
 
@@ -241,7 +244,20 @@ extern void appine_core_add_web_tab(NSString *urlString);
     // ==========================================
     // 插件系统初始化 (支持 ES Module 和 PluginLoader)
     // ==========================================
-    NSString *appineDir = [@"~/git-local/appine-dev" stringByExpandingTildeInPath]; 
+    Dl_info info;
+    NSString *appineDir = nil;
+
+    if (dladdr((const void *)&dylib_dummy_symbol, &info) != 0) {
+        // info.dli_fname 包含了当前 dylib 的完整绝对路径 (例如: /path/to/your/libappine.dylib)
+        NSString *dylibFullPath = [NSString stringWithUTF8String:info.dli_fname];
+        // 剔除文件名，获取 dylib 所在的目录
+        appineDir = [dylibFullPath stringByDeletingLastPathComponent];
+    } else {
+        // Fallback: 万一获取失败，退回到默认路径
+        appineDir = [@"~/.emacs.d/straight/repos/appine" stringByExpandingTildeInPath];
+        NSLog(@"[Warning] 无法动态获取 dylib 路径，使用默认路径: %@", appineDir);
+    }
+    // NSString *appineDir = [@"~/git-local/appine-dev" stringByExpandingTildeInPath]; 
     NSString *pluginsDir = [appineDir stringByAppendingPathComponent:@"plugins"];
     
     // 1. 读取 plugins-loader.js
