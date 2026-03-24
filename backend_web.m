@@ -244,8 +244,6 @@ extern void appine_core_add_web_tab(NSString *urlString);
                                                     forMainFrameOnly:YES];
     [config.userContentController addUserScript:debugScript];
 
-    // 插件
-    // 假设你的插件根目录在 ~/.emacs.d/appine，你可以根据实际情况修改此路径
     // ==========================================
     // 插件系统初始化 (支持 ES Module 和 PluginLoader)
     // ==========================================
@@ -262,8 +260,21 @@ extern void appine_core_add_web_tab(NSString *urlString);
         appineDir = [@"~/.emacs.d/straight/repos/appine" stringByExpandingTildeInPath];
         NSLog(@"[Warning] 无法动态获取 dylib 路径，使用默认路径: %@", appineDir);
     }
-    // NSString *appineDir = [@"~/git-local/appine-dev" stringByExpandingTildeInPath]; 
-    NSString *pluginsDir = [appineDir stringByAppendingPathComponent:@"plugins"];
+    NSString *pluginsDir = [appineDir stringByAppendingPathComponent:@"plugins"];    
+    // NSString *appineDir = [@"~/git-local/appine-dev" stringByExpandingTildeInPath];
+    // 注入全局工具库 (AppineUtils)
+    NSString *utilsPath = [appineDir stringByAppendingPathComponent:@"utils.js"];
+    NSString *utilsJS = [NSString stringWithContentsOfFile:utilsPath encoding:NSUTF8StringEncoding error:nil];
+    if (utilsJS) {
+        // 注意：这里使用 WKUserScriptInjectionTimeAtDocumentStart，确保它最早可用
+        WKUserScript *utilsScript = [[WKUserScript alloc] initWithSource:utilsJS 
+                                                           injectionTime:WKUserScriptInjectionTimeAtDocumentStart 
+                                                        forMainFrameOnly:YES];
+        [config.userContentController addUserScript:utilsScript];
+    } else {
+        NSLog(@"[Appine-Warning] 未找到 utils.js");
+    }
+    
 
     // 1. 读取 plugins-loader.js
     NSString *loaderPath = [appineDir stringByAppendingPathComponent:@"plugins-loader.js"];
@@ -584,8 +595,17 @@ extern void appine_core_add_web_tab(NSString *urlString);
                 const textNodes = [];\
                 let node;\
                 while (node = walker.nextNode()) {\
-                    const p = node.parentNode.nodeName;\
+                    const pNode = node.parentNode;\
+                    const p = pNode.nodeName;\
                     if (p !== 'SCRIPT' && p !== 'STYLE' && p !== 'NOSCRIPT') {\
+                        /* 【修改】复用全局工具库，但关闭视口检查(全页搜索)、尺寸检查和点击检查 */\
+                        if (window.AppineUtils && !window.AppineUtils.isElementVisible(pNode, {\
+                            checkViewport: false, \
+                            checkSize: false, \
+                            checkPointerEvents: false \
+                        })) {\
+                            continue;\
+                        }\
                         if (regex.test(node.nodeValue)) textNodes.push(node);\
                     }\
                 }\
