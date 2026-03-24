@@ -488,6 +488,43 @@ static void appine_add_tab(id<AppineBackend> backend);
     appine_attach_active_view();
 }
 
+- (void)findNext:(id)sender {
+    (void)sender;
+    appine_set_active(YES);
+    
+    AppineState *state = appine_state();
+    AppineTabItem *active = appine_find_tab(state.activeTabId);
+    
+    // 注意这里是 findNext: 带冒号
+    if (active && active.backend &&
+        [active.backend respondsToSelector:@selector(findNext:)]) {
+        #pragma clang diagnostic push
+        #pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+        [active.backend performSelector:@selector(findNext:) withObject:nil];
+        #pragma clang diagnostic pop
+        APPINE_LOG(@"[appine] findNext: called on backend");
+    }
+}
+
+- (void)findPrevious:(id)sender {
+    (void)sender;
+    appine_set_active(YES);
+    
+    AppineState *state = appine_state();
+    AppineTabItem *active = appine_find_tab(state.activeTabId);
+    
+    // 注意这里是 findPrevious: 带冒号
+    if (active && active.backend &&
+        [active.backend respondsToSelector:@selector(findPrevious:)]) {
+        #pragma clang diagnostic push
+        #pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+        [active.backend performSelector:@selector(findPrevious:) withObject:nil];
+        #pragma clang diagnostic pop
+        APPINE_LOG(@"[appine] findPrevious: called on backend");
+    }
+}
+
+
 @end
 
 static AppineActionTarget *g_action_target = nil;

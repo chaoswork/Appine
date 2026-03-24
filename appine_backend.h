@@ -50,6 +50,8 @@ typedef NS_ENUM(NSInteger, AppineBackendKind) {
 - (void)toggleFindBar;
 /// 当前 Find Bar 是否可见
 - (BOOL)isFindBarVisible;
+- (void)findNext;
+- (void)findPrev;
 
 @end
 
