@@ -269,7 +269,7 @@ extern void appine_core_add_web_tab(NSString *urlString);
         loaderJS = [loaderJS stringByReplacingOccurrencesOfString:@"export default PluginLoader;" withString:@"window.PluginLoader = PluginLoader;"];
         
         NSMutableString *pluginInjectionJS = [NSMutableString stringWithString:loaderJS];
-        [pluginInjectionJS appendString:@"\n(async () => {\n"];
+        [pluginInjectionJS appendString:@"\n"];
         
         NSArray *plugins = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:pluginsDir error:nil];
         for (NSString *pluginName in plugins) {
@@ -279,20 +279,20 @@ extern void appine_core_add_web_tab(NSString *urlString);
             NSString *pluginJS = [NSString stringWithContentsOfFile:pluginIndexPath encoding:NSUTF8StringEncoding error:nil];
             
             if (pluginJS) {
-                // 核心魔法：将插件代码转为 Base64 Data URI，完美支持 ES Module 的 import()
-                NSData *jsData = [pluginJS dataUsingEncoding:NSUTF8StringEncoding];
-                NSString *base64JS = [jsData base64EncodedStringWithOptions:0];
-                NSString *dataURI = [NSString stringWithFormat:@"data:text/javascript;base64,%@", base64JS];
+                // 核心魔法：将 export default 替换为 return，并包裹在 IIFE 中，彻底绕过 CSP 限制
+                NSString *modifiedJS = [pluginJS stringByReplacingOccurrencesOfString:@"export default" withString:@"return"];
                 
+                // 使用块级作用域 {} 隔离不同插件的变量
+                [pluginInjectionJS appendFormat:@"{\n"];
                 [pluginInjectionJS appendFormat:@"  try {\n"];
-                [pluginInjectionJS appendFormat:@"      await window.PluginLoader.load(['%@']);\n", dataURI];
-                [pluginInjectionJS appendFormat:@"      console.log('[Appine-Plugin] ✅ 成功加载插件: %@');\n", pluginName];
+                [pluginInjectionJS appendFormat:@"    const pluginObj = (function() {\n%@\n    })();\n", modifiedJS];
+                [pluginInjectionJS appendFormat:@"    window.PluginLoader.register(pluginObj);\n"];
                 [pluginInjectionJS appendFormat:@"  } catch(e) {\n"];
-                [pluginInjectionJS appendFormat:@"      console.error('[Appine-Plugin] ❌ 加载插件 %@ 失败:', e);\n", pluginName];
+                [pluginInjectionJS appendFormat:@"    console.log('[Appine-Plugin] ❌ 加载插件 %@ 失败: ' + (e.message || e));\n", pluginName];
                 [pluginInjectionJS appendFormat:@"  }\n"];
+                [pluginInjectionJS appendFormat:@"}\n"];
             }
         }
-        [pluginInjectionJS appendString:@"})();\n"];
         
         WKUserScript *script = [[WKUserScript alloc] initWithSource:pluginInjectionJS 
                                                         injectionTime:WKUserScriptInjectionTimeAtDocumentEnd 

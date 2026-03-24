@@ -128,11 +128,14 @@ function handleInput(key) {
 // ── 键盘事件处理 ──────────────────────────────────────────
 
 function onKeydown(e) {
-  console.log(`[link-hints] 收到按键: ${e.key}, active: ${active}, target: ${e.target.tagName}`);
+  console.log(`[link-hints] 收到按键: ${e.key}, active: ${active}, target: ${e.target.tagName}, isContentEditable: ${e.target.isContentEditable}`);
   
-  // 防止在输入框打字时触发 (仅在非 active 状态下拦截，active 状态下要接管按键)
-  if (!active && (['INPUT', 'TEXTAREA'].includes(e.target.tagName) || e.target.isContentEditable)) return;
-
+  // 防止在输入框打字时触发
+  if (!active && (['INPUT', 'TEXTAREA'].includes(e.target.tagName) || e.target.isContentEditable)) {
+      console.log(`[link-hints] ⚠️ 焦点在输入框，忽略按键`);
+      return;
+  }    
+  
   if (e.key === 'Escape') return clearHints();
   
   if (!active && e.key === TRIGGER_KEY && !e.ctrlKey && !e.metaKey) {
