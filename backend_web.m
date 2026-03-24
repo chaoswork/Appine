@@ -362,7 +362,7 @@ extern void appine_core_add_web_tab(NSString *urlString);
 
 - (void)performFindWithString:(NSString *)string backwards:(BOOL)backwards {
     if (!string || string.length == 0) {
-        self.currentFindString = @""; // 清空记录
+        self.currentFindString = @"";
         NSString *clearJS = @"\
             document.querySelectorAll('mark.appine-highlight').forEach(el => {\
                 const parent = el.parentNode;\
@@ -374,87 +374,89 @@ extern void appine_core_add_web_tab(NSString *urlString);
         return;
     }
 
-    // 【核心修复】：判断搜索词是否发生了改变
     BOOL stringChanged = ![string isEqualToString:self.currentFindString];
-    
-    // 只有在搜索词改变时（打字时），才执行耗时的 JS 全文高亮
+
     if (stringChanged) {
-        self.currentFindString = string; // 更新记录
-        
-        // 0. 安全转义
+        self.currentFindString = string;
+
         NSString *safeString = [string stringByReplacingOccurrencesOfString:@"\\" withString:@"\\\\"];
         safeString = [safeString stringByReplacingOccurrencesOfString:@"'" withString:@"\\'"];
         safeString = [safeString stringByReplacingOccurrencesOfString:@"\n" withString:@" "];
         safeString = [safeString stringByReplacingOccurrencesOfString:@"\r" withString:@""];
-
-        // 1. 注入 CSS 样式
+        // 1. 注入 CSS 样式 (新增 ::selection 强制修改原生选中颜色)
         NSString *injectCSSJS = @"\
             (function() {\
                 if (!document.getElementById('appine-highlight-style')) {\
                     let style = document.createElement('style');\
                     style.id = 'appine-highlight-style';\
-                    style.innerHTML = 'mark.appine-highlight { background-color: #FFD700 !important; color: black !important; }';\
+                    style.innerHTML = \
+                        'mark.appine-highlight { background-color: #FFFF00 !important; color: black !important; } ' + \
+                        'mark.appine-highlight::selection { background-color: #FF9632 !important; color: black !important; }';\
                     document.head.appendChild(style);\
                 }\
             })();\
         ";
         [self.webView evaluateJavaScript:injectCSSJS completionHandler:nil];
 
-        // 2. 使用 JS 实现全文高亮
+        // 【优化2：TreeWalker】使用原生 DOM 遍历，不触发滚动和选中，性能提升几十倍
         NSString *highlightJS = [NSString stringWithFormat:@"\
-            (function() {\
-                try {\
-                    /* 先清除旧的高亮 */\
-                    document.querySelectorAll('mark.appine-highlight').forEach(el => {\
-                        const parent = el.parentNode;\
-                        parent.replaceChild(document.createTextNode(el.textContent), el);\
-                        parent.normalize();\
-                    });\
-                    \
-                    let count = 0;\
-                    let scrollX = window.scrollX;\
-                    let scrollY = window.scrollY;\
-                    \
-                    /* 回到顶部开始查找 */\
-                    window.scrollTo(0, 0);\
-                    \
-                    /* 遍历查找并高亮 */\
-                    while (window.find('%@', false, false, true, false, true, false)) {\
-                        let selection = window.getSelection();\
-                        if (selection.rangeCount > 0) {\
-                            let range = selection.getRangeAt(0);\
-                            let mark = document.createElement('mark');\
-                            mark.className = 'appine-highlight';\
-                            try {\
-                                range.surroundContents(mark);\
-                                count++;\
-                            } catch (domErr) {\
-                            }\
-                        }\
-                        if (count > 500) break;\
+            (function(keyword) {\
+                /* 1. 清除旧高亮 */\
+                document.querySelectorAll('mark.appine-highlight').forEach(el => {\
+                    const parent = el.parentNode;\
+                    parent.replaceChild(document.createTextNode(el.textContent), el);\
+                    parent.normalize();\
+                });\
+                if (!keyword) return;\
+                \
+                /* 2. 正则转义，创建全局忽略大小写的正则 */\
+                const escapeRegExp = (s) => s.replace(/[-/\\\\^$*+?.()|[\\]{}]/g, '\\\\$&');\
+                const regex = new RegExp('(' + escapeRegExp(keyword) + ')', 'gi');\
+                \
+                /* 3. 使用 TreeWalker 高效收集所有匹配的文本节点 */\
+                const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);\
+                const textNodes = [];\
+                let node;\
+                while (node = walker.nextNode()) {\
+                    const p = node.parentNode.nodeName;\
+                    if (p !== 'SCRIPT' && p !== 'STYLE' && p !== 'NOSCRIPT') {\
+                        if (regex.test(node.nodeValue)) textNodes.push(node);\
                     }\
-                    \
-                    /* 恢复滚动位置并清除选中状态 */\
-                    window.scrollTo(scrollX, scrollY);\
-                    window.getSelection().removeAllRanges();\
-                } catch (e) {\
                 }\
-            })();\
+                \
+                /* 4. 批量替换 DOM（使用 DocumentFragment 减少重排） */\
+                let count = 0;\
+                for (let i = 0; i < textNodes.length; i++) {\
+                    if (count > 1000) break; /* 性能提升了，可以把上限放宽到 1000 */\
+                    const textNode = textNodes[i];\
+                    const frag = document.createDocumentFragment();\
+                    const parts = textNode.nodeValue.split(regex);\
+                    parts.forEach(part => {\
+                        if (part.toLowerCase() === keyword.toLowerCase()) {\
+                            const mark = document.createElement('mark');\
+                            mark.className = 'appine-highlight';\
+                            mark.textContent = part;\
+                            frag.appendChild(mark);\
+                            count++;\
+                        } else if (part) {\
+                            frag.appendChild(document.createTextNode(part));\
+                        }\
+                    });\
+                    textNode.parentNode.replaceChild(frag, textNode);\
+                }\
+            })('%@');\
         ", safeString];
-        
+
         [self.webView evaluateJavaScript:highlightJS completionHandler:nil];
     }
 
-    // 3. 无论文本是否改变，都调用 WKWebView 原生的查找方法
-    // 这样在点击 Next/Prev 时，就不会触发上面的 JS，完美保留原生游标状态，实现丝滑跳转！
+    // 无论文本是否改变，都调用 WKWebView 原生的查找方法处理跳转
     WKFindConfiguration *config = [[WKFindConfiguration alloc] init];
     config.backwards = backwards;
     config.wraps = YES;
     config.caseSensitive = NO;
-    
-    [self.webView findString:string withConfiguration:config completionHandler:^(WKFindResult * _Nonnull result) {
-        // 必须保留这个空的 Block，防止 Core Dump
-    }];
+
+    [self.webView findString:string withConfiguration:config completionHandler:^(WKFindResult * _Nonnull result) {}];
 }
 
 - (void)findTextFieldAction:(id)sender {
@@ -474,8 +476,16 @@ extern void appine_core_add_web_tab(NSString *urlString);
 - (void)controlTextDidChange:(NSNotification *)notification {
     NSTextField *field = notification.object;
     if (field == self.findTextField) {
-        [self performFindWithString:self.findTextField.stringValue backwards:NO];
+        // 【优化1：防抖】取消之前的延迟请求，避免用户快速打字时疯狂触发 JS
+        [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(triggerSearchFromTyping) object:nil];
+        // 延迟 0.25 秒执行搜索
+        [self performSelector:@selector(triggerSearchFromTyping) withObject:nil afterDelay:0.25];
     }
+}
+
+// 供防抖调用的独立方法
+- (void)triggerSearchFromTyping {
+    [self performFindWithString:self.findTextField.stringValue backwards:NO];
 }
 
 - (BOOL)control:(NSControl *)control textView:(NSTextView *)textView doCommandBySelector:(SEL)commandSelector {

@@ -181,7 +181,8 @@
         
         ;; 4. 触发更新逻辑
         (when trigger-update
-          (if (y-or-n-p (format "[Appine] New version (%s) found on GitHub.  Update right now?\n[Appine] github上发现新版本 (%s)，是否更新插件?" github-version github-version))
+          (if (y-or-n-p (concat (format "[Appine] New version (%s) found on GitHub. Update right now? " github-version)
+                                (format "[Appine] github上发现新版本 (%s)，是否更新插件?" github-version)))
               ;; 6. 用户选是：执行 git pull 并重新加载
               (progn
                 (message "[Appine] prepare update...")
