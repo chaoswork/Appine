@@ -341,13 +341,27 @@ extern void appine_core_add_web_tab(NSString *urlString);
     self.findBarVisible = NO;
     self.findBarView.hidden = YES;
     
-    // 恢复 WebView 的高度
     CGFloat findBarHeight = 32.0;
     NSRect webFrame = self.webView.frame;
     webFrame.size.height += findBarHeight;
     self.webView.frame = webFrame;
     
-    // 清除页面高亮
+    // 清除页面高亮和 JS 状态
+    NSString *clearJS = @"\
+        if (window.appineFindState && window.appineFindState.elements) {\
+            window.appineFindState.elements.forEach(el => {\
+                const parent = el.parentNode;\
+                if (parent) {\
+                    parent.replaceChild(document.createTextNode(el.textContent), el);\
+                    parent.normalize();\
+                }\
+            });\
+        }\
+        window.appineFindState = { index: -1, elements: [] };\
+    ";
+    [self.webView evaluateJavaScript:clearJS completionHandler:nil];
+    
+    // 清除原生查找状态（以防万一）
     if (@available(macOS 12.0, *)) {
         WKFindConfiguration *config = [[WKFindConfiguration alloc] init];
         [self.webView findString:@"" withConfiguration:config completionHandler:^(WKFindResult *result) {}];
@@ -356,34 +370,75 @@ extern void appine_core_add_web_tab(NSString *urlString);
     self.findStatusLabel.stringValue = @"";
     self.currentFindString = @"";
     
-    // 焦点还给 WebView
     [self.webView.window makeFirstResponder:self.webView];
+}
+
+// 新增：专门用于在已有的匹配项中丝滑跳转
+- (void)jumpToNextMatchBackwards:(BOOL)backwards {
+    NSString *jumpJS = [NSString stringWithFormat:@"\
+        (function(backwards) {\
+            let state = window.appineFindState;\
+            if (!state || !state.elements || state.elements.length === 0) return '0/0';\
+            \
+            /* 移除上一个当前项的橙色高亮 */\
+            if (state.index >= 0 && state.index < state.elements.length) {\
+                state.elements[state.index].classList.remove('appine-current');\
+            }\
+            \
+            /* 计算下一个索引，支持首尾循环 (Wrap) */\
+            if (backwards) {\
+                state.index = state.index <= 0 ? state.elements.length - 1 : state.index - 1;\
+            } else {\
+                state.index = state.index >= state.elements.length - 1 ? 0 : state.index + 1;\
+            }\
+            \
+            /* 给新的当前项加上橙色高亮，并滚动到屏幕中央 */\
+            let target = state.elements[state.index];\
+            target.classList.add('appine-current');\
+            target.scrollIntoView({ behavior: 'auto', block: 'center' });\
+            \
+            return (state.index + 1) + '/' + state.elements.length;\
+        })(%@);\
+    ", backwards ? @"true" : @"false"];
+    
+    [self.webView evaluateJavaScript:jumpJS completionHandler:^(id result, NSError *error) {
+        if ([result isKindOfClass:[NSString class]]) {
+            self.findStatusLabel.stringValue = result; // 更新 1/12 标签
+        }
+    }];
 }
 
 - (void)performFindWithString:(NSString *)string backwards:(BOOL)backwards {
     if (!string || string.length == 0) {
         self.currentFindString = @"";
+        self.findStatusLabel.stringValue = @"";
         NSString *clearJS = @"\
-            document.querySelectorAll('mark.appine-highlight').forEach(el => {\
-                const parent = el.parentNode;\
-                parent.replaceChild(document.createTextNode(el.textContent), el);\
-                parent.normalize();\
-            });\
+            if (window.appineFindState && window.appineFindState.elements) {\
+                window.appineFindState.elements.forEach(el => {\
+                    const parent = el.parentNode;\
+                    if (parent) {\
+                        parent.replaceChild(document.createTextNode(el.textContent), el);\
+                        parent.normalize();\
+                    }\
+                });\
+            }\
+            window.appineFindState = { index: -1, elements: [] };\
         ";
         [self.webView evaluateJavaScript:clearJS completionHandler:nil];
         return;
     }
 
     BOOL stringChanged = ![string isEqualToString:self.currentFindString];
-
+    
     if (stringChanged) {
         self.currentFindString = string;
-
+        
         NSString *safeString = [string stringByReplacingOccurrencesOfString:@"\\" withString:@"\\\\"];
         safeString = [safeString stringByReplacingOccurrencesOfString:@"'" withString:@"\\'"];
         safeString = [safeString stringByReplacingOccurrencesOfString:@"\n" withString:@" "];
         safeString = [safeString stringByReplacingOccurrencesOfString:@"\r" withString:@""];
-        // 1. 注入 CSS 样式 (新增 ::selection 强制修改原生选中颜色)
+
+        // 注入 CSS：全局黄色，当前选中橙色
         NSString *injectCSSJS = @"\
             (function() {\
                 if (!document.getElementById('appine-highlight-style')) {\
@@ -391,29 +446,32 @@ extern void appine_core_add_web_tab(NSString *urlString);
                     style.id = 'appine-highlight-style';\
                     style.innerHTML = \
                         'mark.appine-highlight { background-color: #FFFF00 !important; color: black !important; } ' + \
-                        'mark.appine-highlight::selection { background-color: #FF9632 !important; color: black !important; }';\
+                        'mark.appine-current { background-color: #FF9632 !important; color: black !important; }';\
                     document.head.appendChild(style);\
                 }\
             })();\
         ";
         [self.webView evaluateJavaScript:injectCSSJS completionHandler:nil];
 
-        // 【优化2：TreeWalker】使用原生 DOM 遍历，不触发滚动和选中，性能提升几十倍
+        // 使用 JS 提取并保存所有匹配的 DOM 节点
         NSString *highlightJS = [NSString stringWithFormat:@"\
             (function(keyword) {\
-                /* 1. 清除旧高亮 */\
-                document.querySelectorAll('mark.appine-highlight').forEach(el => {\
-                    const parent = el.parentNode;\
-                    parent.replaceChild(document.createTextNode(el.textContent), el);\
-                    parent.normalize();\
-                });\
-                if (!keyword) return;\
+                if (window.appineFindState && window.appineFindState.elements) {\
+                    window.appineFindState.elements.forEach(el => {\
+                        const parent = el.parentNode;\
+                        if (parent) {\
+                            parent.replaceChild(document.createTextNode(el.textContent), el);\
+                            parent.normalize();\
+                        }\
+                    });\
+                }\
+                /* 初始化全局状态对象 */\
+                window.appineFindState = { index: -1, elements: [] };\
+                if (!keyword) return '0/0';\
                 \
-                /* 2. 正则转义，创建全局忽略大小写的正则 */\
                 const escapeRegExp = (s) => s.replace(/[-/\\\\^$*+?.()|[\\]{}]/g, '\\\\$&');\
                 const regex = new RegExp('(' + escapeRegExp(keyword) + ')', 'gi');\
                 \
-                /* 3. 使用 TreeWalker 高效收集所有匹配的文本节点 */\
                 const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);\
                 const textNodes = [];\
                 let node;\
@@ -424,10 +482,9 @@ extern void appine_core_add_web_tab(NSString *urlString);
                     }\
                 }\
                 \
-                /* 4. 批量替换 DOM（使用 DocumentFragment 减少重排） */\
                 let count = 0;\
                 for (let i = 0; i < textNodes.length; i++) {\
-                    if (count > 1000) break; /* 性能提升了，可以把上限放宽到 1000 */\
+                    if (count > 1000) break;\
                     const textNode = textNodes[i];\
                     const frag = document.createDocumentFragment();\
                     const parts = textNode.nodeValue.split(regex);\
@@ -437,6 +494,8 @@ extern void appine_core_add_web_tab(NSString *urlString);
                             mark.className = 'appine-highlight';\
                             mark.textContent = part;\
                             frag.appendChild(mark);\
+                            /* 将匹配的节点存入数组，供跳转使用 */\
+                            window.appineFindState.elements.push(mark);\
                             count++;\
                         } else if (part) {\
                             frag.appendChild(document.createTextNode(part));\
@@ -444,19 +503,23 @@ extern void appine_core_add_web_tab(NSString *urlString);
                     });\
                     textNode.parentNode.replaceChild(frag, textNode);\
                 }\
+                return window.appineFindState.elements.length > 0 ? '0/' + window.appineFindState.elements.length : '0/0';\
             })('%@');\
         ", safeString];
-
-        [self.webView evaluateJavaScript:highlightJS completionHandler:nil];
+        
+        [self.webView evaluateJavaScript:highlightJS completionHandler:^(id result, NSError *error) {
+            if ([result isKindOfClass:[NSString class]]) {
+                self.findStatusLabel.stringValue = result;
+                // 如果找到了结果，立刻让第一个结果变成橙色并滚动到视野中
+                if (![result isEqualToString:@"0/0"]) {
+                    [self jumpToNextMatchBackwards:backwards];
+                }
+            }
+        }];
+    } else {
+        // 【核心改变】：如果搜索词没变（点击了 Next/Prev），直接调用 JS 跳转，彻底抛弃原生 findString!
+        [self jumpToNextMatchBackwards:backwards];
     }
-
-    // 无论文本是否改变，都调用 WKWebView 原生的查找方法处理跳转
-    WKFindConfiguration *config = [[WKFindConfiguration alloc] init];
-    config.backwards = backwards;
-    config.wraps = YES;
-    config.caseSensitive = NO;
-
-    [self.webView findString:string withConfiguration:config completionHandler:^(WKFindResult * _Nonnull result) {}];
 }
 
 - (void)findTextFieldAction:(id)sender {
