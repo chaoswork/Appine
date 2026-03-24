@@ -8,15 +8,57 @@ let hints = [];                               // 当前所有 hint 对象 { labe
 let active = false;
 let currentInput = '';                        // 当前已输入的字母
 
+// ── 辅助函数：精准判断元素是否在屏幕上真正可见 ──────────────────────
+function isElementVisible(el) {
+  const rect = el.getBoundingClientRect();
+
+  // 1. 基础尺寸检查 (过滤 display: none 或未渲染的元素)
+  if (rect.width <= 0 || rect.height <= 0) {
+    return false;
+  }
+
+  // 2. 视口(Viewport)检查 (只给当前屏幕内可见的元素打标签)
+  // 这样可以避免给页面底部还没滚动到的几百个链接打标签，极大提升性能并减少字母消耗
+  if (
+    rect.bottom <= 0 || 
+    rect.top >= (window.innerHeight || document.documentElement.clientHeight) ||
+    rect.right <= 0 || 
+    rect.left >= (window.innerWidth || document.documentElement.clientWidth)
+  ) {
+    return false;
+  }
+
+  // 3. 计算样式检查 (过滤透明、隐藏、不可交互的元素)
+  const style = window.getComputedStyle(el);
+  if (
+    style.visibility === 'hidden' || 
+    style.opacity === '0' || 
+    style.display === 'none' ||
+    style.pointerEvents === 'none' // GitHub 的隐藏菜单经常用这个
+  ) {
+    return false;
+  }
+
+  // 4. (可选) 检查元素中心点是否被其他背景遮挡
+  // const elementFromPoint = document.elementFromPoint(
+  //   rect.left + rect.width / 2,
+  //   rect.top + rect.height / 2
+  // );
+  // if (elementFromPoint && !el.contains(elementFromPoint) && !elementFromPoint.contains(el)) {
+  //   return false;
+  // }
+
+  return true;
+}
+
 // ── 核心逻辑 ──────────────────────────────────────────────
 
 function getTargets() {
-  // 可互动元素：链接 + 按钮 + 输入框
-  return [...document.querySelectorAll('a[href], button, input, [role="button"]')]
-    .filter(el => {
-      const r = el.getBoundingClientRect();
-      return r.width > 0 && r.height > 0;    // 过滤不可见元素
-    });
+  // 可互动元素：链接 + 按钮 + 输入框 + 文本域 + 下拉框 + 带有 tabindex 的可聚焦元素
+  const selectors = 'a[href], button, input, textarea, select, [role="button"], [tabindex]:not([tabindex="-1"])';
+  
+  return [...document.querySelectorAll(selectors)]
+    .filter(isElementVisible);
 }
 
 // 核心算法：生成无前缀冲突的标签数组 (Vimium 算法)

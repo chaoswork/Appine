@@ -221,8 +221,8 @@ extern void appine_core_add_web_tab(NSString *urlString);
     WKWebViewConfiguration *config = [[WKWebViewConfiguration alloc] init];
     // 1. 注册消息通道
     [config.userContentController addScriptMessageHandler:self name:@"appineLog"];
-    
-    // 2. 注入 JS 脚本：劫持 console.log 并监听所有 keydown
+
+    // 2. 注入 JS 脚本：劫持 console.log 并监听所有 keydown 和 全局错误
     NSString *debugJS = @"\
         const origLog = console.log;\n\
         console.log = function(...args) {\n\
@@ -230,10 +230,15 @@ extern void appine_core_add_web_tab(NSString *urlString);
             const msg = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');\n\
             window.webkit.messageHandlers.appineLog.postMessage(msg);\n\
         };\n\
+        /* 捕获语法错误等全局异常 */\n\
+        window.addEventListener('error', function(e) {\n\
+            console.log('❌ [Appine-JS-Error] 捕获到页面错误:', e.message, '行号:', e.lineno);\n\
+        });\n\
         window.addEventListener('keydown', function(e) {\n\
             console.log('🔥 JS 捕获到按键:', e.key, 'keyCode:', e.keyCode);\n\
         }, true);\n\
     ";
+
     WKUserScript *debugScript = [[WKUserScript alloc] initWithSource:debugJS 
                                                        injectionTime:WKUserScriptInjectionTimeAtDocumentStart 
                                                     forMainFrameOnly:YES];
@@ -259,17 +264,20 @@ extern void appine_core_add_web_tab(NSString *urlString);
     }
     // NSString *appineDir = [@"~/git-local/appine-dev" stringByExpandingTildeInPath]; 
     NSString *pluginsDir = [appineDir stringByAppendingPathComponent:@"plugins"];
-    
+
     // 1. 读取 plugins-loader.js
     NSString *loaderPath = [appineDir stringByAppendingPathComponent:@"plugins-loader.js"];
     NSString *loaderJS = [NSString stringWithContentsOfFile:loaderPath encoding:NSUTF8StringEncoding error:nil];
     
     if (loaderJS) {
-        // 移除 export default，改为挂载到 window，使其在注入环境中全局可用
+        // 移除 export default，改为挂载到 window
         loaderJS = [loaderJS stringByReplacingOccurrencesOfString:@"export default PluginLoader;" withString:@"window.PluginLoader = PluginLoader;"];
         
-        NSMutableString *pluginInjectionJS = [NSMutableString stringWithString:loaderJS];
-        [pluginInjectionJS appendString:@"\n"];
+        // 将 loader 单独作为一个 Script 注入
+        WKUserScript *loaderScript = [[WKUserScript alloc] initWithSource:loaderJS 
+                                                            injectionTime:WKUserScriptInjectionTimeAtDocumentEnd 
+                                                         forMainFrameOnly:YES];
+        [config.userContentController addUserScript:loaderScript];
         
         NSArray *plugins = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:pluginsDir error:nil];
         for (NSString *pluginName in plugins) {
@@ -279,25 +287,29 @@ extern void appine_core_add_web_tab(NSString *urlString);
             NSString *pluginJS = [NSString stringWithContentsOfFile:pluginIndexPath encoding:NSUTF8StringEncoding error:nil];
             
             if (pluginJS) {
-                // 核心魔法：将 export default 替换为 return，并包裹在 IIFE 中，彻底绕过 CSP 限制
+                // 原生端也打印一下，方便确认读取到了文件
+                NSLog(@"[Appine-Plugin] 准备注入插件: %@", pluginName);
+                
+                NSMutableString *pluginInjectionJS = [NSMutableString string];
                 NSString *modifiedJS = [pluginJS stringByReplacingOccurrencesOfString:@"export default" withString:@"return"];
                 
-                // 使用块级作用域 {} 隔离不同插件的变量
                 [pluginInjectionJS appendFormat:@"{\n"];
                 [pluginInjectionJS appendFormat:@"  try {\n"];
+                [pluginInjectionJS appendFormat:@"    console.log('[Appine-Plugin] ⏳ 开始解析并执行插件: %@');\n", pluginName];
                 [pluginInjectionJS appendFormat:@"    const pluginObj = (function() {\n%@\n    })();\n", modifiedJS];
                 [pluginInjectionJS appendFormat:@"    window.PluginLoader.register(pluginObj);\n"];
                 [pluginInjectionJS appendFormat:@"  } catch(e) {\n"];
-                [pluginInjectionJS appendFormat:@"    console.log('[Appine-Plugin] ❌ 加载插件 %@ 失败: ' + (e.message || e));\n", pluginName];
+                [pluginInjectionJS appendFormat:@"    console.log('[Appine-Plugin] ❌ 执行插件 %@ 失败: ' + (e.message || e));\n", pluginName];
                 [pluginInjectionJS appendFormat:@"  }\n"];
                 [pluginInjectionJS appendFormat:@"}\n"];
+                
+                // 【修改点 2】为每一个插件单独创建一个 WKUserScript
+                WKUserScript *pluginScript = [[WKUserScript alloc] initWithSource:pluginInjectionJS 
+                                                                    injectionTime:WKUserScriptInjectionTimeAtDocumentEnd 
+                                                                 forMainFrameOnly:YES];
+                [config.userContentController addUserScript:pluginScript];
             }
         }
-        
-        WKUserScript *script = [[WKUserScript alloc] initWithSource:pluginInjectionJS 
-                                                        injectionTime:WKUserScriptInjectionTimeAtDocumentEnd 
-                                                     forMainFrameOnly:YES];
-        [config.userContentController addUserScript:script];
     } else {
         NSLog(@"[Appine-Plugin] ⚠️ 未找到 plugins-loader.js");
     }
@@ -469,7 +481,7 @@ extern void appine_core_add_web_tab(NSString *urlString);
     [self.webView.window makeFirstResponder:self.webView];
 }
 
-// 新增：专门用于在已有的匹配项中丝滑跳转
+// 专门用于在已有的匹配项中丝滑跳转
 - (void)jumpToNextMatchBackwards:(BOOL)backwards {
     NSString *jumpJS = [NSString stringWithFormat:@"\
         (function(backwards) {\
@@ -613,7 +625,8 @@ extern void appine_core_add_web_tab(NSString *urlString);
             }
         }];
     } else {
-        // 【核心改变】：如果搜索词没变（点击了 Next/Prev），直接调用 JS 跳转，彻底抛弃原生 findString!
+        // 之前使用过原生 findString! 和 js 配合不太好。
+        // 如果搜索词没变（点击了 Next/Prev），直接调用 JS 跳转
         [self jumpToNextMatchBackwards:backwards];
     }
 }
