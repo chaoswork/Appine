@@ -633,6 +633,13 @@ static void appine_setup_global_event_monitor(void) {
                         if (isOpt && isShift && ([chars isEqualToString:@"."] || [chars isEqualToString:@">"])) {
                             return [g_action_target scrollToBottom:nil] ? nil:event;
                         }
+                        // 如果按键没有被上面的逻辑拦截（比如普通的字母 f，或者在网页输入框打字），
+                        // 且当前焦点在 Appine 内部，我们必须手动把事件发给 WKWebView，
+                        // 然后返回 nil，防止 Emacs 拦截它！
+                        if (state.hostWindow.firstResponder) {
+                            [state.hostWindow.firstResponder keyDown:event];
+                            APPINE_LOG(@"key send to current firstResponder: %@", [state.hostWindow.firstResponder className]);                                        return nil;
+                        }
                     }
                 }
                 return event;

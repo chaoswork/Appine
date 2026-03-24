@@ -111,7 +111,8 @@ extern void appine_core_add_web_tab(NSString *urlString);
 // ===========================================================================
 // AppineWebBackend
 // ===========================================================================
-@interface AppineWebBackend : NSObject <AppineBackend, WKNavigationDelegate, WKUIDelegate, NSTextFieldDelegate, WKDownloadDelegate>
+@interface AppineWebBackend : NSObject <AppineBackend, WKNavigationDelegate, WKUIDelegate, NSTextFieldDelegate, WKDownloadDelegate, WKScriptMessageHandler>
+
 @property (nonatomic, strong) NSView *containerView;
 @property (nonatomic, strong) AppineWebView *webView;
 @property (nonatomic, strong) NSTextField *urlField;
@@ -215,6 +216,75 @@ extern void appine_core_add_web_tab(NSString *urlString);
     // 配置 WebView 的持久化与伪装
     // ==========================================
     WKWebViewConfiguration *config = [[WKWebViewConfiguration alloc] init];
+    // 1. 注册消息通道
+    [config.userContentController addScriptMessageHandler:self name:@"appineLog"];
+    
+    // 2. 注入 JS 脚本：劫持 console.log 并监听所有 keydown
+    NSString *debugJS = @"\
+        const origLog = console.log;\n\
+        console.log = function(...args) {\n\
+            origLog.apply(console, args);\n\
+            const msg = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');\n\
+            window.webkit.messageHandlers.appineLog.postMessage(msg);\n\
+        };\n\
+        window.addEventListener('keydown', function(e) {\n\
+            console.log('🔥 JS 捕获到按键:', e.key, 'keyCode:', e.keyCode);\n\
+        }, true);\n\
+    ";
+    WKUserScript *debugScript = [[WKUserScript alloc] initWithSource:debugJS 
+                                                       injectionTime:WKUserScriptInjectionTimeAtDocumentStart 
+                                                    forMainFrameOnly:YES];
+    [config.userContentController addUserScript:debugScript];
+
+    // 插件
+    // 假设你的插件根目录在 ~/.emacs.d/appine，你可以根据实际情况修改此路径
+    // ==========================================
+    // 插件系统初始化 (支持 ES Module 和 PluginLoader)
+    // ==========================================
+    NSString *appineDir = [@"~/git-local/appine-dev" stringByExpandingTildeInPath]; 
+    NSString *pluginsDir = [appineDir stringByAppendingPathComponent:@"plugins"];
+    
+    // 1. 读取 plugins-loader.js
+    NSString *loaderPath = [appineDir stringByAppendingPathComponent:@"plugins-loader.js"];
+    NSString *loaderJS = [NSString stringWithContentsOfFile:loaderPath encoding:NSUTF8StringEncoding error:nil];
+    
+    if (loaderJS) {
+        // 移除 export default，改为挂载到 window，使其在注入环境中全局可用
+        loaderJS = [loaderJS stringByReplacingOccurrencesOfString:@"export default PluginLoader;" withString:@"window.PluginLoader = PluginLoader;"];
+        
+        NSMutableString *pluginInjectionJS = [NSMutableString stringWithString:loaderJS];
+        [pluginInjectionJS appendString:@"\n(async () => {\n"];
+        
+        NSArray *plugins = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:pluginsDir error:nil];
+        for (NSString *pluginName in plugins) {
+            if ([pluginName hasPrefix:@"."]) continue; 
+            
+            NSString *pluginIndexPath = [NSString stringWithFormat:@"%@/%@/index.js", pluginsDir, pluginName];
+            NSString *pluginJS = [NSString stringWithContentsOfFile:pluginIndexPath encoding:NSUTF8StringEncoding error:nil];
+            
+            if (pluginJS) {
+                // 核心魔法：将插件代码转为 Base64 Data URI，完美支持 ES Module 的 import()
+                NSData *jsData = [pluginJS dataUsingEncoding:NSUTF8StringEncoding];
+                NSString *base64JS = [jsData base64EncodedStringWithOptions:0];
+                NSString *dataURI = [NSString stringWithFormat:@"data:text/javascript;base64,%@", base64JS];
+                
+                [pluginInjectionJS appendFormat:@"  try {\n"];
+                [pluginInjectionJS appendFormat:@"      await window.PluginLoader.load(['%@']);\n", dataURI];
+                [pluginInjectionJS appendFormat:@"      console.log('[Appine-Plugin] ✅ 成功加载插件: %@');\n", pluginName];
+                [pluginInjectionJS appendFormat:@"  } catch(e) {\n"];
+                [pluginInjectionJS appendFormat:@"      console.error('[Appine-Plugin] ❌ 加载插件 %@ 失败:', e);\n", pluginName];
+                [pluginInjectionJS appendFormat:@"  }\n"];
+            }
+        }
+        [pluginInjectionJS appendString:@"})();\n"];
+        
+        WKUserScript *script = [[WKUserScript alloc] initWithSource:pluginInjectionJS 
+                                                        injectionTime:WKUserScriptInjectionTimeAtDocumentEnd 
+                                                     forMainFrameOnly:YES];
+        [config.userContentController addUserScript:script];
+    } else {
+        NSLog(@"[Appine-Plugin] ⚠️ 未找到 plugins-loader.js");
+    }
     
     // 1. 强制使用系统的默认持久化数据存储（保存 Cookie、LocalStorage、Session 等）
     config.websiteDataStore = [WKWebsiteDataStore defaultDataStore];
@@ -239,6 +309,16 @@ extern void appine_core_add_web_tab(NSString *urlString);
     [config.userContentController addUserScript:wkUScript];
     
     _webView = [[AppineWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600 - navHeight) configuration:config];
+    // 开启控制台
+#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 130300
+    if (@available(macOS 13.3, *)) {
+        _webView.inspectable = YES; // macOS 13.3 及以上必须设置此属性
+    } else {
+        [config.preferences setValue:@YES forKey:@"developerExtrasEnabled"];
+    }
+#else
+    [config.preferences setValue:@YES forKey:@"developerExtrasEnabled"];
+#endif    
     // 2. 伪装成标准的 Mac Safari 浏览器
     _webView.customUserAgent = @"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.3 Safari/605.1.15";
     _webView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
@@ -784,6 +864,15 @@ extern void appine_core_add_web_tab(NSString *urlString);
 
 - (void)download:(WKDownload *)download didFailWithError:(NSError *)error expectedResumeData:(NSData *)resumeData API_AVAILABLE(macos(11.3)) {
     NSLog(@"[Appine] Download failed: %@", error.localizedDescription);
+}
+
+// ==========================================
+// 接收来自 JS 的 console.log
+// ==========================================
+- (void)userContentController:(WKUserContentController *)userContentController didReceiveScriptMessage:(WKScriptMessage *)message {
+    if ([message.name isEqualToString:@"appineLog"]) {
+        NSLog(@"[Appine-JS] %@", message.body);
+    }
 }
 
 #pragma mark - AppineBackend Protocol
