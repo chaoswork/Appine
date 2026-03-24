@@ -362,6 +362,7 @@ extern void appine_core_add_web_tab(NSString *urlString);
 
 - (void)performFindWithString:(NSString *)string backwards:(BOOL)backwards {
     if (!string || string.length == 0) {
+        self.currentFindString = @""; // 清空记录
         NSString *clearJS = @"\
             document.querySelectorAll('mark.appine-highlight').forEach(el => {\
                 const parent = el.parentNode;\
@@ -369,105 +370,90 @@ extern void appine_core_add_web_tab(NSString *urlString);
                 parent.normalize();\
             });\
         ";
-        [self.webView evaluateJavaScript:clearJS completionHandler:^(id result, NSError *error) {
-            if (error) NSLog(@"[Appine Debug] Clear JS Error: %@", error.localizedDescription);
-        }];
+        [self.webView evaluateJavaScript:clearJS completionHandler:nil];
         return;
     }
 
-    // 0. 安全转义：防止搜索词中包含单引号、斜杠等破坏 JS 语法
-    NSString *safeString = [string stringByReplacingOccurrencesOfString:@"\\" withString:@"\\\\"];
-    safeString = [safeString stringByReplacingOccurrencesOfString:@"'" withString:@"\\'"];
-    safeString = [safeString stringByReplacingOccurrencesOfString:@"\n" withString:@" "];
-    safeString = [safeString stringByReplacingOccurrencesOfString:@"\r" withString:@""];
-
-    NSLog(@"[Appine Debug] Start finding: '%@', safeString: '%@'", string, safeString);
-
-    // 1. 注入 CSS 样式
-    NSString *injectCSSJS = @"\
-        (function() {\
-            if (!document.getElementById('appine-highlight-style')) {\
-                let style = document.createElement('style');\
-                style.id = 'appine-highlight-style';\
-                style.innerHTML = 'mark.appine-highlight { background-color: #FFD700 !important; color: black !important; }';\
-                document.head.appendChild(style);\
-                return 'CSS Injected';\
-            }\
-            return 'CSS Already Exists';\
-        })();\
-    ";
+    // 【核心修复】：判断搜索词是否发生了改变
+    BOOL stringChanged = ![string isEqualToString:self.currentFindString];
     
-    [self.webView evaluateJavaScript:injectCSSJS completionHandler:^(id result, NSError *error) {
-        if (error) {
-            NSLog(@"[Appine Debug] CSS Injection Error: %@", error.localizedDescription);
-        } else {
-            NSLog(@"[Appine Debug] CSS Status: %@", result);
-        }
-    }];
+    // 只有在搜索词改变时（打字时），才执行耗时的 JS 全文高亮
+    if (stringChanged) {
+        self.currentFindString = string; // 更新记录
+        
+        // 0. 安全转义
+        NSString *safeString = [string stringByReplacingOccurrencesOfString:@"\\" withString:@"\\\\"];
+        safeString = [safeString stringByReplacingOccurrencesOfString:@"'" withString:@"\\'"];
+        safeString = [safeString stringByReplacingOccurrencesOfString:@"\n" withString:@" "];
+        safeString = [safeString stringByReplacingOccurrencesOfString:@"\r" withString:@""];
 
-    // 2. 使用 JS 实现全文高亮 (包在一个立即执行函数中，以便捕获异常并返回结果)
-    NSString *highlightJS = [NSString stringWithFormat:@"\
-        (function() {\
-            try {\
-                // 先清除旧的高亮\
-                document.querySelectorAll('mark.appine-highlight').forEach(el => {\
-                    const parent = el.parentNode;\
-                    parent.replaceChild(document.createTextNode(el.textContent), el);\
-                    parent.normalize();\
-                });\
-                \
-                let count = 0;\
-                let scrollX = window.scrollX;\
-                let scrollY = window.scrollY;\
-                \
-                // 回到顶部开始查找\
-                window.scrollTo(0, 0);\
-                \
-                // 遍历查找并高亮\
-                while (window.find('%@', false, false, true, false, true, false)) {\
-                    let selection = window.getSelection();\
-                    if (selection.rangeCount > 0) {\
-                        let range = selection.getRangeAt(0);\
-                        let mark = document.createElement('mark');\
-                        mark.className = 'appine-highlight';\
-                        try {\
-                            range.surroundContents(mark);\
-                            count++;\
-                        } catch (domErr) {\
-                            // 忽略跨标签导致的 DOMException，继续查找下一个\
-                            console.warn('Appine DOM Error:', domErr);\
-                        }\
-                    }\
-                    if (count > 500) break; // 防止死循环\
+        // 1. 注入 CSS 样式
+        NSString *injectCSSJS = @"\
+            (function() {\
+                if (!document.getElementById('appine-highlight-style')) {\
+                    let style = document.createElement('style');\
+                    style.id = 'appine-highlight-style';\
+                    style.innerHTML = 'mark.appine-highlight { background-color: #FFD700 !important; color: black !important; }';\
+                    document.head.appendChild(style);\
                 }\
-                \
-                // 恢复滚动位置并清除选中状态\
-                window.scrollTo(scrollX, scrollY);\
-                window.getSelection().removeAllRanges();\
-                \
-                return 'Highlight Success, marked count: ' + count;\
-            } catch (e) {\
-                return 'JS Exception: ' + e.toString();\
-            }\
-        })();\
-    ", safeString];
-    
-    [self.webView evaluateJavaScript:highlightJS completionHandler:^(id result, NSError *error) {
-        if (error) {
-            NSLog(@"[Appine Debug] Highlight JS Error: %@", error.localizedDescription);
-        } else {
-            NSLog(@"[Appine Debug] Highlight JS Result: %@", result);
-        }
-    }];
+            })();\
+        ";
+        [self.webView evaluateJavaScript:injectCSSJS completionHandler:nil];
 
-    // 3. 调用 WKWebView 原生的查找方法，用于跳转到下一个/上一个结果
+        // 2. 使用 JS 实现全文高亮
+        NSString *highlightJS = [NSString stringWithFormat:@"\
+            (function() {\
+                try {\
+                    /* 先清除旧的高亮 */\
+                    document.querySelectorAll('mark.appine-highlight').forEach(el => {\
+                        const parent = el.parentNode;\
+                        parent.replaceChild(document.createTextNode(el.textContent), el);\
+                        parent.normalize();\
+                    });\
+                    \
+                    let count = 0;\
+                    let scrollX = window.scrollX;\
+                    let scrollY = window.scrollY;\
+                    \
+                    /* 回到顶部开始查找 */\
+                    window.scrollTo(0, 0);\
+                    \
+                    /* 遍历查找并高亮 */\
+                    while (window.find('%@', false, false, true, false, true, false)) {\
+                        let selection = window.getSelection();\
+                        if (selection.rangeCount > 0) {\
+                            let range = selection.getRangeAt(0);\
+                            let mark = document.createElement('mark');\
+                            mark.className = 'appine-highlight';\
+                            try {\
+                                range.surroundContents(mark);\
+                                count++;\
+                            } catch (domErr) {\
+                            }\
+                        }\
+                        if (count > 500) break;\
+                    }\
+                    \
+                    /* 恢复滚动位置并清除选中状态 */\
+                    window.scrollTo(scrollX, scrollY);\
+                    window.getSelection().removeAllRanges();\
+                } catch (e) {\
+                }\
+            })();\
+        ", safeString];
+        
+        [self.webView evaluateJavaScript:highlightJS completionHandler:nil];
+    }
+
+    // 3. 无论文本是否改变，都调用 WKWebView 原生的查找方法
+    // 这样在点击 Next/Prev 时，就不会触发上面的 JS，完美保留原生游标状态，实现丝滑跳转！
     WKFindConfiguration *config = [[WKFindConfiguration alloc] init];
     config.backwards = backwards;
     config.wraps = YES;
     config.caseSensitive = NO;
     
     [self.webView findString:string withConfiguration:config completionHandler:^(WKFindResult * _Nonnull result) {
-        NSLog(@"[Appine Debug] Native findString matchFound: %d", result.matchFound);
+        // 必须保留这个空的 Block，防止 Core Dump
     }];
 }
 
