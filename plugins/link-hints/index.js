@@ -4,8 +4,9 @@
 const TRIGGER_KEY = 'f';                      // 激活键
 const HINT_KEYS   = 'ASDFGHJKLQWERTYUIOP';   // 标签字母池
 
-let hints = [];                               // 当前所有 hint 元素
+let hints = [];                               // 当前所有 hint 对象 { label, el, hintEl }
 let active = false;
+let currentInput = '';                        // 当前已输入的字母
 
 // ── 核心逻辑 ──────────────────────────────────────────────
 
@@ -18,19 +19,39 @@ function getTargets() {
     });
 }
 
+// 核心算法：生成无前缀冲突的标签数组 (Vimium 算法)
+// 保证当你输入 A 时，不会因为存在 AA 而产生歧义
+function generateHintStrings(linkCount, keys) {
+  let hintStrings = [""];
+  let offset = 0;
+  // 不断将最短的字符串弹出，并在其后追加所有可能的字母
+  while (hintStrings.length - offset < linkCount || hintStrings.length === 1) {
+    let hint = hintStrings[offset++];
+    for (let ch of keys) {
+      hintStrings.push(hint + ch);
+    }
+  }
+  // 截取需要的数量
+  return hintStrings.slice(offset, offset + linkCount);
+}
+
 function showHints() {
   const targets = getTargets();
   console.log(`[link-hints] 开始显示标签，找到 ${targets.length} 个可交互元素`);
+  if (targets.length === 0) return;
+
+  // 生成对应数量的标签字符串
+  const hintStrings = generateHintStrings(targets.length, HINT_KEYS);
   
-  targets.slice(0, HINT_KEYS.length).forEach((el, i) => {
-    const label = HINT_KEYS[i];
+  targets.forEach((el, i) => {
+    const label = hintStrings[i];
     const r = el.getBoundingClientRect();
-    const hint = Object.assign(document.createElement('div'), {
+    const hintEl = Object.assign(document.createElement('div'), {
       textContent: label,
       className: '__hint__',
     });
-    Object.assign(hint.style, {
-      position: 'absolute', // ⚠️ 改为 absolute 适应网页滚动
+    Object.assign(hintEl.style, {
+      position: 'absolute',
       left: (window.scrollX + r.left) + 'px', 
       top: (window.scrollY + r.top) + 'px',
       background: '#ffeb3b', color: '#000',
@@ -40,32 +61,68 @@ function showHints() {
       boxShadow: '0 2px 4px rgba(0,0,0,.2)',
       border: '1px solid #f57f17'
     });
-    hint._target = el;                        // 关联目标元素
-    document.body.appendChild(hint);
-    hints.push(hint);
+    document.body.appendChild(hintEl);
+    hints.push({ label, el, hintEl }); // 保存对象以便后续过滤
   });
   active = true;
+  currentInput = '';
 }
 
 function clearHints() {
-  hints.forEach(h => h.remove());
+  hints.forEach(h => h.hintEl.remove());
   hints = [];
   active = false;
+  currentInput = '';
 }
 
-function activate(key) {
-  const hint = hints.find(h => h.textContent === key.toUpperCase());
-  if (!hint) return clearHints();             // 无匹配 → 退出
-  const el = hint._target;
-  clearHints();
-  
-  console.log(`[link-hints] 激活元素:`, el.tagName);
-  if (el.tagName === 'A') {
-      // 模拟真实点击，兼容性更好
-      el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
-  } else {
-      el.focus?.() || el.click();
+// 更新标签的显示状态（隐藏不匹配的，高亮已输入的）
+function updateHintsDisplay() {
+  hints.forEach(h => {
+    if (h.label.startsWith(currentInput)) {
+      h.hintEl.style.display = 'block';
+      const typed = h.label.substring(0, currentInput.length);
+      const rest = h.label.substring(currentInput.length);
+      // 已输入的字母变灰，未输入的保持黑色
+      h.hintEl.innerHTML = currentInput.length > 0 ? `<span style="opacity:0.4">${typed}</span>${rest}` : h.label;
+    } else {
+      h.hintEl.style.display = 'none';
+    }
+  });
+}
+
+function handleInput(key) {
+  key = key.toUpperCase();
+  if (!HINT_KEYS.includes(key)) {
+    // 输入了非标签池的按键，直接退出
+    return clearHints();
   }
+  
+  currentInput += key;
+  console.log(`[link-hints] 当前输入: ${currentInput}`);
+  
+  // 筛选出前缀匹配的标签
+  const matchedHints = hints.filter(h => h.label.startsWith(currentInput));
+  
+  if (matchedHints.length === 0) {
+    console.log(`[link-hints] 无匹配标签，退出`);
+    return clearHints();
+  }
+  
+  // 如果只剩下一个匹配项，直接触发（不需要敲完剩下的字母）
+  if (matchedHints.length === 1) {
+    const el = matchedHints[0].el;
+    clearHints();
+    console.log(`[link-hints] 唯一匹配，激活元素:`, el.tagName);
+    if (el.tagName === 'A') {
+        el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+    } else {
+        el.focus?.() || el.click();
+    }
+    return;
+  }
+  
+  // 还有多个匹配项，更新界面显示
+  updateHintsDisplay();
 }
 
 // ── 键盘事件处理 ──────────────────────────────────────────
@@ -73,15 +130,15 @@ function activate(key) {
 function onKeydown(e) {
   console.log(`[link-hints] 收到按键: ${e.key}, active: ${active}, target: ${e.target.tagName}`);
   
-  // 防止在输入框打字时触发
-  if (['INPUT', 'TEXTAREA'].includes(e.target.tagName) || e.target.isContentEditable) return;
+  // 防止在输入框打字时触发 (仅在非 active 状态下拦截，active 状态下要接管按键)
+  if (!active && (['INPUT', 'TEXTAREA'].includes(e.target.tagName) || e.target.isContentEditable)) return;
 
   if (e.key === 'Escape') return clearHints();
   
   if (!active && e.key === TRIGGER_KEY && !e.ctrlKey && !e.metaKey) {
     console.log(`[link-hints] 触发激活键 ${TRIGGER_KEY}！`);
     e.preventDefault();
-    e.stopPropagation(); // 阻止网页原有逻辑
+    e.stopPropagation();
     showHints();
     return;
   }
@@ -89,7 +146,22 @@ function onKeydown(e) {
   if (active) {
     e.preventDefault();
     e.stopPropagation();
-    activate(e.key);
+    
+    // 处理退格键，允许撤销输入
+    if (e.key === 'Backspace') {
+      if (currentInput.length > 0) {
+        currentInput = currentInput.slice(0, -1);
+        updateHintsDisplay();
+      } else {
+        clearHints();
+      }
+      return;
+    }
+    
+    // 忽略单独的修饰键
+    if (['Shift', 'Control', 'Alt', 'Meta'].includes(e.key)) return;
+    
+    handleInput(e.key);
   }
 }
 
