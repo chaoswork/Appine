@@ -20,6 +20,8 @@ You can open a browser, read PDFs, listen to music, and watch videos in Emacs. E
 - **Seamless Integration**: The native views automatically resize and move when you split or adjust Emacs windows.
 - **Tab Management**: Support for multiple embedded tabs, switching, and closing directly from Emacs.
 - **Org-mode Integration**: Use Appine to open links and files within Org files.
+- **Plugin Support**: You can now write some simple plugins for Appine's browser.
+
 
 
 ## 📖 Usage
@@ -49,6 +51,10 @@ Run `M-x appine-open-url`. You will be prompted to enter a URL. A native WebKit 
 A video demonstrating Open Web Page.
 
 https://github.com/user-attachments/assets/f63eff4e-754e-4d4f-b11c-aa9d3f982c67
+
+To quickly open links on web pages, I wrote a simple link-hints plugin for Appine's built-in browser. It works similarly to Vimium — pressing `f` will highlight the links on the page, and then pressing the corresponding key will quickly open the link on the current page, or pressing `q` to quit the link hints, as shown below:
+
+<img width="3024" height="1898" alt="Image" src="https://github.com/user-attachments/assets/2e86d223-0d5f-47a3-9e90-b3d3afa36c78" />
 
 ### Opening PDFs and Other Documents
 

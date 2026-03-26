@@ -5,7 +5,7 @@
 ;; Author: Huang Chao <huangchao.cpp@gmail.com>
 ;; Copyright (C) 2026, Huang Chao, all rights reserved.
 ;; Created: 2026-03-15 19:35:21
-;; Version: 0.0.6
+;; Version: 0.0.7
 ;; Package-Requires: ((emacs "29.1"))
 ;; URL: https://github.com/chaoswork/appine
 ;; Keywords: tools, multimedia, convenience, macos
@@ -57,7 +57,7 @@
 (require 'url)
 
 (defconst appine-github-repo "chaoswork/appine")
-(defconst appine-version "0.0.6") ;; 记得打 tag 以使用 github action
+(defconst appine-version "0.0.7") ;; 记得打 tag 以使用 github action
 
 ;;; ==========================================================================
 ;;; 加载模块

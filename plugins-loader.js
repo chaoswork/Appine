@@ -2,10 +2,10 @@
 const PluginLoader = (() => {
   const plugins = new Map();
 
-  // 直接注册插件对象，不再使用 import()
+  // 直接注册插件对象，使用 import() 可能出错
   function register(plugin) {
     if (!plugin) {
-      console.log(`[PluginLoader] ❌ 错误: 插件对象为空`);
+      console.log(`[PluginLoader] ❌ ERROR: plugin object is null`);
       return;
     }
     try {

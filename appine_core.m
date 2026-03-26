@@ -652,10 +652,8 @@ static void appine_setup_global_event_monitor(void) {
                 hitView = [event.window.contentView hitTest:event.locationInWindow];
             }
 
-            if (g_appine_debug_log) {
-                NSLog(@"[appine] GLOBAL CLICK at %@, hitTest view: %@, window: %@",
-                      NSStringFromPoint(event.locationInWindow), [hitView className], [event.window className]);
-            }
+            APPINE_LOG(@"[appine] GLOBAL CLICK at %@, hitTest view: %@, window: %@",
+                NSStringFromPoint(event.locationInWindow), [hitView className], [event.window className]);
 
             if ([hitView isKindOfClass:[NSSegmentedControl class]]) {
                 NSSegmentedControl *tabControl = (NSSegmentedControl *)hitView;
@@ -716,6 +714,10 @@ static void appine_ensure_container(void) {
 
     state.containerView = [[NSView alloc] initWithFrame:state.targetRect];
     [win.contentView addSubview:state.containerView];
+
+    if (@available(macOS 10.14, *)) {
+        state.containerView.appearance = win.appearance;
+    }
 
     state.toolbarView = [[NSView alloc] init];
     state.toolbarStack = [NSStackView stackViewWithViews:@[]];
@@ -792,15 +794,15 @@ static void appine_apply_visual_state(void) {
     BOOL active = state.isActive;
 
     state.toolbarView.wantsLayer = YES;
-    state.toolbarView.layer.backgroundColor = active ? [NSColor controlBackgroundColor].CGColor : [NSColor colorWithCalibratedWhite:0.92 alpha:1.0].CGColor;
+    state.toolbarView.layer.backgroundColor = [NSColor controlBackgroundColor].CGColor;
 
     state.tabBarView.wantsLayer = YES;
-    state.tabBarView.layer.backgroundColor = active ? [NSColor windowBackgroundColor].CGColor : [NSColor colorWithCalibratedWhite:0.94 alpha:1.0].CGColor;
+    state.tabBarView.layer.backgroundColor = [NSColor windowBackgroundColor].CGColor;
 
     state.contentHostView.wantsLayer = YES;
     state.contentHostView.layer.backgroundColor = [NSColor textBackgroundColor].CGColor;
     state.contentHostView.layer.borderWidth = 2.0;
-    state.contentHostView.layer.borderColor = active ? [NSColor keyboardFocusIndicatorColor].CGColor : [NSColor colorWithCalibratedWhite:0.72 alpha:1.0].CGColor;
+    state.contentHostView.layer.borderColor = active ? [NSColor keyboardFocusIndicatorColor].CGColor : [NSColor separatorColor].CGColor;
 
     state.inactiveOverlayView.hidden = active;
 

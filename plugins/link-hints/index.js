@@ -26,13 +26,13 @@ function getTargets() {
     });
   } catch (err) {
     // 捕获并打印真实的错误信息，而不是被浏览器吞掉变成 Script error. 行号: 0
-    console.log(`[link-hints] ❌ getTargets 发生严重错误: ${err.message}\n${err.stack}`);
+    console.log(`[link-hints] ❌ getTargets fatal error: ${err.message}\n${err.stack}`);
     return [];
   }
 }
 
 
-// 核心算法：生成无前缀冲突的标签数组 (Vimium 算法)
+// 核心算法：生成无前缀冲突的标签数组 (模仿 Vimium)
 // 保证当你输入 A 时，不会因为存在 AA 而产生歧义
 function generateHintStrings(linkCount, keys) {
   let hintStrings = [""];
@@ -111,7 +111,7 @@ function handleInput(key) {
   }
   
   currentInput += key;
-  console.log(`[link-hints] 当前输入: ${currentInput}`);
+  console.log(`[link-hints] currentInput: ${currentInput}`);
   
   // 筛选出前缀匹配的标签
   const matchedHints = hints.filter(h => h.label.startsWith(currentInput));
@@ -191,7 +191,7 @@ export default {
   setup(api) {
     pluginApi = api;
     api.on('keydown', onKeydown);
-    api.log('ready — press [F] to activate hints');
+    api.log('ready — press [f] to activate hints');
   },
 
   teardown() {

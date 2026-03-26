@@ -55,9 +55,9 @@ macOS views directly inside Emacs windows.</p>
 *Appine Window* buffer. You can maximize it with <code>C-x 1</code>,
 close it with <code>C-x 0</code>, switch between buffers with
 <code>C-x o</code>. If you close it, you can reopen it with
-<code>C-x b</code> by switching to the <em>Appine Window</em> buffer.
-You can also scroll through the embedded Appine Window using
-<code>C-n</code>, <code>C-p</code>, <code>C-v</code>, <code>M-v</code>,
+<code>C-x b</code> by switching to the *Appine Window* buffer. You can
+also scroll through the embedded Appine Window using <code>C-n</code>,
+<code>C-p</code>, <code>C-v</code>, <code>M-v</code>,
 <code>M-&lt;</code>, and <code>M-&gt;</code>, just as you would in an
 Emacs buffer.</p>
 <h2 id="commands-m-x">Commands (M-x)</h2>
@@ -81,8 +81,8 @@ supported shortcuts include:</p>
 <ul>
 <li>Open File: <code>C-x C-f</code> or <code>Cmd + o</code></li>
 <li>New Tab: <code>Cmd + t</code></li>
-<li>Next Tab: <code>C-c f</code></li>
 <li>Close Tab: <code>Cmd + w</code></li>
+<li>Next Tab: <code>C-c f</code></li>
 <li>Previous Tab: <code>C-c b</code></li>
 <li>Forward Web Page: <code>C-c C-f</code></li>
 <li>Backward Web Page: <code>C-c C-b</code></li>
@@ -92,6 +92,15 @@ supported shortcuts include:</p>
 <li>Paste: <code>C-y</code> or <code>Cmd + v</code></li>
 <li>Undo: <code>C-/</code> or <code>Cmd + z</code></li>
 </ul>
+<h2 id="web-browser-plugins">Web Browser Plugins</h2>
+<h3 id="link-hints">Link Hints</h3>
+<p>To quickly open links on web pages, I wrote a simple link-hints
+plugin for Appine's built-in browser. It works similarly to Vimium -
+pressing <code>f</code> will highlight the links on the page, and then
+pressing the corresponding key will quickly open the link on the current
+page, or pressing <code>q</code> to quit the link hints, as shown
+below:</p>
+<p><img width="512" alt="Image" src="https://github.com/user-attachments/assets/2e86d223-0d5f-47a3-9e90-b3d3afa36c78" /></p>
 <h2 id="something-more">Something More</h2>
 <p>When the focus is on *Appine Window*, the *Appine Window* is active,
 and you can use it just like a native macOS app.</p>

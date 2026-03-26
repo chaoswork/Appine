@@ -1,7 +1,7 @@
 /*
  * Filename: backend_web.m
  * Project: Appine (App in Emacs)
- * Description: Emacs dynamic module to embed native macOS views 
+ * Description: Emacs dynamic module to embed native macOS views
  *              (WebKit, PDFKit, Quick Look, etc.) directly inside Emacs windows.
  * Author: Huang Chao <huangchao.cpp@gmail.com>
  * Copyright (C) 2026, Huang Chao, all rights reserved.
@@ -22,6 +22,7 @@
  */
 #import <Cocoa/Cocoa.h>
 #import <WebKit/WebKit.h>
+#import "appine_core.h"
 #import "appine_backend.h"
 #import <dlfcn.h>
 
@@ -45,68 +46,68 @@ extern void appine_core_add_web_tab(NSString *urlString);
 
 // 拦截真正的菜单弹出时机
 - (void)willOpenMenu:(NSMenu *)menu withEvent:(NSEvent *)event {
-    NSLog(@"[Appine-Menu] 1. willOpenMenu:withEvent: called");
-    
+    APPINE_LOG(@"[Appine-Menu] 1. willOpenMenu:withEvent: called");
+
     NSMenuItem *openLinkItem = nil;
     NSMenuItem *openImageItem = nil;
-    
-    NSLog(@"[Appine-Menu] --- Listing native menu items ---");
+
+    APPINE_LOG(@"[Appine-Menu] --- Listing native menu items ---");
     for (NSMenuItem *item in menu.itemArray) {
-        NSLog(@"[Appine-Menu] Item ID: '%@', Title: '%@'", item.identifier, item.title);
+        APPINE_LOG(@"[Appine-Menu] Item ID: '%@', Title: '%@'", item.identifier, item.title);
         if ([item.identifier isEqualToString:@"WKMenuItemIdentifierOpenLinkInNewWindow"]) {
             openLinkItem = item;
         } else if ([item.identifier isEqualToString:@"WKMenuItemIdentifierOpenImageInNewWindow"]) {
             openImageItem = item;
         }
     }
-    NSLog(@"[Appine-Menu] ---------------------------------");
-    
+    APPINE_LOG(@"[Appine-Menu] ---------------------------------");
+
     for (NSMenuItem *item in menu.itemArray) {
         if ([item.identifier isEqualToString:@"WKMenuItemIdentifierDownloadLinkedFile"]) {
             if (openLinkItem) {
-                NSLog(@"[Appine-Menu] 2. Successfully hijacked 'DownloadLinkedFile'");
+                APPINE_LOG(@"[Appine-Menu] 2. Successfully hijacked 'DownloadLinkedFile'");
                 item.target = self;
                 item.action = @selector(interceptDownloadAction:);
                 item.representedObject = openLinkItem;
             }
         } else if ([item.identifier isEqualToString:@"WKMenuItemIdentifierDownloadImage"]) {
             if (openImageItem) {
-                NSLog(@"[Appine-Menu] 2. Successfully hijacked 'DownloadImage'");
+                APPINE_LOG(@"[Appine-Menu] 2. Successfully hijacked 'DownloadImage'");
                 item.target = self;
                 item.action = @selector(interceptDownloadAction:);
                 item.representedObject = openImageItem;
             }
         }
     }
-    
-    // 修复死循环：直接使用 super 调用，不要使用 performSelector
+
+    // 直接使用 super 调用，不要使用 performSelector, 不然可能死循环
     if ([WKWebView instancesRespondToSelector:@selector(willOpenMenu:withEvent:)]) {
         [super willOpenMenu:menu withEvent:event];
     }
 }
 
 - (void)interceptDownloadAction:(NSMenuItem *)sender {
-    NSLog(@"[Appine-Menu] 3. interceptDownloadAction: triggered!");
+    APPINE_LOG(@"[Appine-Menu] 3. interceptDownloadAction: triggered!");
     NSMenuItem *originalOpenItem = sender.representedObject;
-    
+
     self.isInterceptingDownload = YES;
-    NSLog(@"[Appine-Menu] isInterceptingDownload set to YES");
-    
+    APPINE_LOG(@"[Appine-Menu] isInterceptingDownload set to YES");
+
     if (originalOpenItem.target && originalOpenItem.action) {
-        NSLog(@"[Appine-Menu] 4. Simulating click on: %@", originalOpenItem.identifier);
+        APPINE_LOG(@"[Appine-Menu] 4. Simulating click on: %@", originalOpenItem.identifier);
         void (*action)(id, SEL, id) = (void (*)(id, SEL, id))[originalOpenItem.target methodForSelector:originalOpenItem.action];
         if (action) {
             action(originalOpenItem.target, originalOpenItem.action, originalOpenItem);
         } else {
-            NSLog(@"[Appine-Menu] ERROR: Failed to get action method pointer");
+            APPINE_LOG(@"[Appine-Menu] ERROR: Failed to get action method pointer");
         }
     } else {
-        NSLog(@"[Appine-Menu] ERROR: originalOpenItem missing target or action");
+        APPINE_LOG(@"[Appine-Menu] ERROR: originalOpenItem missing target or action");
     }
-    
+
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         self.isInterceptingDownload = NO;
-        NSLog(@"[Appine-Menu] isInterceptingDownload reset to NO (timeout)");
+        APPINE_LOG(@"[Appine-Menu] isInterceptingDownload reset to NO (timeout)");
     });
 }
 @end
@@ -146,11 +147,11 @@ extern void appine_core_add_web_tab(NSString *urlString);
         _title = @"Web";
         _findBarVisible = NO;
         _currentFindString = @"";
-        
+
         [self setupUI];
         [self setupFindBar]; // 初始化 Find Bar
         [self loadURL:urlString];
-        
+
         // 使用 KVO 监听 WebView 状态，替代定时器
         [_webView addObserver:self forKeyPath:@"URL" options:NSKeyValueObservingOptionNew context:nil];
         [_webView addObserver:self forKeyPath:@"title" options:NSKeyValueObservingOptionNew context:nil];
@@ -171,15 +172,15 @@ extern void appine_core_add_web_tab(NSString *urlString);
     // 1. 创建主容器 (将被 appine_native 放入 contentHostView)
     _containerView = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600)];
     _containerView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
-    
+
     CGFloat navHeight = 32.0;
-    
+
     // 2. 创建专属导航栏 (固定在容器顶部)
     NSView *navBar = [[NSView alloc] initWithFrame:NSMakeRect(0, 600 - navHeight, 800, navHeight)];
     navBar.autoresizingMask = NSViewWidthSizable | NSViewMinYMargin;
     navBar.wantsLayer = YES;
     navBar.layer.backgroundColor = [NSColor controlBackgroundColor].CGColor;
-    
+
     // 底部分割线
     NSView *separator = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 800, 1)];
     separator.autoresizingMask = NSViewWidthSizable | NSViewMaxYMargin;
@@ -187,25 +188,25 @@ extern void appine_core_add_web_tab(NSString *urlString);
     separator.layer.backgroundColor = [NSColor gridColor].CGColor;
     [navBar addSubview:separator];
     [_containerView addSubview:navBar];
-    
+
     // 3. 添加导航按钮 (<, >, ↻)
     _backBtn = [NSButton buttonWithTitle:@"<" target:self action:@selector(goBack:)];
     _backBtn.frame = NSMakeRect(5, 4, 28, 24);
     _backBtn.bezelStyle = NSBezelStyleTexturedRounded;
     _backBtn.enabled = NO;
     [navBar addSubview:_backBtn];
-    
+
     _forwardBtn = [NSButton buttonWithTitle:@">" target:self action:@selector(goForward:)];
     _forwardBtn.frame = NSMakeRect(38, 4, 28, 24);
     _forwardBtn.bezelStyle = NSBezelStyleTexturedRounded;
     _forwardBtn.enabled = NO;
     [navBar addSubview:_forwardBtn];
-    
+
     _reloadBtn = [NSButton buttonWithTitle:@"↻" target:self action:@selector(reload:)];
     _reloadBtn.frame = NSMakeRect(71, 4, 28, 24);
     _reloadBtn.bezelStyle = NSBezelStyleTexturedRounded;
     [navBar addSubview:_reloadBtn];
-    
+
     // 4. 添加地址栏 (在按钮右侧)
     _urlField = [[NSTextField alloc] initWithFrame:NSMakeRect(105, 5, 800 - 110, 22)];
     _urlField.autoresizingMask = NSViewWidthSizable; // 自动拉伸宽度
@@ -214,7 +215,7 @@ extern void appine_core_add_web_tab(NSString *urlString);
     _urlField.action = @selector(urlEntered:);
     _urlField.focusRingType = NSFocusRingTypeNone;
     [navBar addSubview:_urlField];
-    
+
     // ==========================================
     // 配置 WebView 的持久化与伪装
     // ==========================================
@@ -239,8 +240,8 @@ extern void appine_core_add_web_tab(NSString *urlString);
         }, true);\n\
     ";
 
-    WKUserScript *debugScript = [[WKUserScript alloc] initWithSource:debugJS 
-                                                       injectionTime:WKUserScriptInjectionTimeAtDocumentStart 
+    WKUserScript *debugScript = [[WKUserScript alloc] initWithSource:debugJS
+                                                       injectionTime:WKUserScriptInjectionTimeAtDocumentStart
                                                     forMainFrameOnly:YES];
     [config.userContentController addUserScript:debugScript];
 
@@ -258,52 +259,51 @@ extern void appine_core_add_web_tab(NSString *urlString);
     } else {
         // Fallback: 万一获取失败，退回到默认路径
         appineDir = [@"~/.emacs.d/straight/repos/appine" stringByExpandingTildeInPath];
-        NSLog(@"[Warning] 无法动态获取 dylib 路径，使用默认路径: %@", appineDir);
+        APPINE_LOG(@"[Warning] 无法动态获取 dylib 路径，使用默认路径: %@", appineDir);
     }
-    NSString *pluginsDir = [appineDir stringByAppendingPathComponent:@"plugins"];    
+    NSString *pluginsDir = [appineDir stringByAppendingPathComponent:@"plugins"];
     // NSString *appineDir = [@"~/git-local/appine-dev" stringByExpandingTildeInPath];
     // 注入全局工具库 (AppineUtils)
     NSString *utilsPath = [appineDir stringByAppendingPathComponent:@"utils.js"];
     NSString *utilsJS = [NSString stringWithContentsOfFile:utilsPath encoding:NSUTF8StringEncoding error:nil];
     if (utilsJS) {
         // 注意：这里使用 WKUserScriptInjectionTimeAtDocumentStart，确保它最早可用
-        WKUserScript *utilsScript = [[WKUserScript alloc] initWithSource:utilsJS 
-                                                           injectionTime:WKUserScriptInjectionTimeAtDocumentStart 
+        WKUserScript *utilsScript = [[WKUserScript alloc] initWithSource:utilsJS
+                                                           injectionTime:WKUserScriptInjectionTimeAtDocumentStart
                                                         forMainFrameOnly:YES];
         [config.userContentController addUserScript:utilsScript];
     } else {
-        NSLog(@"[Appine-Warning] 未找到 utils.js");
+        APPINE_LOG(@"[Appine-Warning] 未找到 utils.js");
     }
-    
+
 
     // 1. 读取 plugins-loader.js
     NSString *loaderPath = [appineDir stringByAppendingPathComponent:@"plugins-loader.js"];
     NSString *loaderJS = [NSString stringWithContentsOfFile:loaderPath encoding:NSUTF8StringEncoding error:nil];
-    
+
     if (loaderJS) {
-        // 移除 export default，改为挂载到 window
         loaderJS = [loaderJS stringByReplacingOccurrencesOfString:@"export default PluginLoader;" withString:@"window.PluginLoader = PluginLoader;"];
-        
+
         // 将 loader 单独作为一个 Script 注入
-        WKUserScript *loaderScript = [[WKUserScript alloc] initWithSource:loaderJS 
-                                                            injectionTime:WKUserScriptInjectionTimeAtDocumentEnd 
+        WKUserScript *loaderScript = [[WKUserScript alloc] initWithSource:loaderJS
+                                                            injectionTime:WKUserScriptInjectionTimeAtDocumentEnd
                                                          forMainFrameOnly:YES];
         [config.userContentController addUserScript:loaderScript];
-        
+
         NSArray *plugins = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:pluginsDir error:nil];
         for (NSString *pluginName in plugins) {
-            if ([pluginName hasPrefix:@"."]) continue; 
-            
+            if ([pluginName hasPrefix:@"."]) continue;
+
             NSString *pluginIndexPath = [NSString stringWithFormat:@"%@/%@/index.js", pluginsDir, pluginName];
             NSString *pluginJS = [NSString stringWithContentsOfFile:pluginIndexPath encoding:NSUTF8StringEncoding error:nil];
-            
+
             if (pluginJS) {
                 // 原生端也打印一下，方便确认读取到了文件
-                NSLog(@"[Appine-Plugin] 准备注入插件: %@", pluginName);
-                
+                APPINE_LOG(@"[Appine-Plugin] 准备注入插件: %@", pluginName);
+
                 NSMutableString *pluginInjectionJS = [NSMutableString string];
                 NSString *modifiedJS = [pluginJS stringByReplacingOccurrencesOfString:@"export default" withString:@"return"];
-                
+
                 [pluginInjectionJS appendFormat:@"{\n"];
                 [pluginInjectionJS appendFormat:@"  try {\n"];
                 [pluginInjectionJS appendFormat:@"    console.log('[Appine-Plugin] ⏳ 开始解析并执行插件: %@');\n", pluginName];
@@ -313,21 +313,21 @@ extern void appine_core_add_web_tab(NSString *urlString);
                 [pluginInjectionJS appendFormat:@"    console.log('[Appine-Plugin] ❌ 执行插件 %@ 失败: ' + (e.message || e));\n", pluginName];
                 [pluginInjectionJS appendFormat:@"  }\n"];
                 [pluginInjectionJS appendFormat:@"}\n"];
-                
-                // 【修改点 2】为每一个插件单独创建一个 WKUserScript
-                WKUserScript *pluginScript = [[WKUserScript alloc] initWithSource:pluginInjectionJS 
-                                                                    injectionTime:WKUserScriptInjectionTimeAtDocumentEnd 
+
+                // 为每一个插件单独创建一个 WKUserScript
+                WKUserScript *pluginScript = [[WKUserScript alloc] initWithSource:pluginInjectionJS
+                                                                    injectionTime:WKUserScriptInjectionTimeAtDocumentEnd
                                                                  forMainFrameOnly:YES];
                 [config.userContentController addUserScript:pluginScript];
             }
         }
     } else {
-        NSLog(@"[Appine-Plugin] ⚠️ 未找到 plugins-loader.js");
+        APPINE_LOG(@"[Appine-Plugin] ⚠️ 未找到 plugins-loader.js");
     }
-    
+
     // 1. 强制使用系统的默认持久化数据存储（保存 Cookie、LocalStorage、Session 等）
     config.websiteDataStore = [WKWebsiteDataStore defaultDataStore];
-    
+
     // 注入 JS：保留 PC 布局，但当网页过宽时，自动等比例缩小 (Zoom) 以适应当前窗口
     NSString *jScript = @"function autoFit() { "
                          "  if(!document.documentElement) return; "
@@ -341,12 +341,12 @@ extern void appine_core_add_web_tab(NSString *urlString);
                          "autoFit(); "
                          "window.addEventListener('load', autoFit); "
                          "window.addEventListener('resize', autoFit);";
-                         
-    WKUserScript *wkUScript = [[WKUserScript alloc] initWithSource:jScript 
-                                                     injectionTime:WKUserScriptInjectionTimeAtDocumentEnd 
+
+    WKUserScript *wkUScript = [[WKUserScript alloc] initWithSource:jScript
+                                                     injectionTime:WKUserScriptInjectionTimeAtDocumentEnd
                                                   forMainFrameOnly:YES];
     [config.userContentController addUserScript:wkUScript];
-    
+
     _webView = [[AppineWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600 - navHeight) configuration:config];
     // 开启控制台
 #if __MAC_OS_X_VERSION_MAX_ALLOWED >= 130300
@@ -357,11 +357,11 @@ extern void appine_core_add_web_tab(NSString *urlString);
     }
 #else
     [config.preferences setValue:@YES forKey:@"developerExtrasEnabled"];
-#endif    
+#endif
     // 2. 伪装成标准的 Mac Safari 浏览器
+    // 防止 Google、GitHub 等网站以“不安全的嵌入式浏览器”为由拒绝你登录。
     _webView.customUserAgent = @"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.3 Safari/605.1.15";
     _webView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
-    
     _webView.navigationDelegate = self;
     _webView.UIDelegate = self;
     [_containerView addSubview:_webView];
@@ -374,27 +374,27 @@ extern void appine_core_add_web_tab(NSString *urlString);
     CGFloat findBarHeight = 32.0;
     CGFloat navHeight = 32.0;
     NSRect containerFrame = self.containerView.frame;
-    
+
     // Find Bar 位于 NavBar 正下方
     _findBarView = [[NSView alloc] initWithFrame:NSMakeRect(0, containerFrame.size.height - navHeight - findBarHeight, containerFrame.size.width, findBarHeight)];
     _findBarView.autoresizingMask = NSViewWidthSizable | NSViewMinYMargin;
     _findBarView.wantsLayer = YES;
     _findBarView.layer.backgroundColor = [NSColor controlBackgroundColor].CGColor;
     _findBarView.hidden = YES;
-    
+
     // 顶部分割线
     NSView *separator = [[NSView alloc] initWithFrame:NSMakeRect(0, findBarHeight - 1, containerFrame.size.width, 1)];
     separator.autoresizingMask = NSViewWidthSizable | NSViewMinYMargin;
     separator.wantsLayer = YES;
     separator.layer.backgroundColor = [NSColor gridColor].CGColor;
     [_findBarView addSubview:separator];
-    
+
     // 关闭按钮
     NSButton *closeBtn = [NSButton buttonWithTitle:@"✕" target:self action:@selector(closeFindBar:)];
     closeBtn.frame = NSMakeRect(10, 5, 24, 22);
     closeBtn.bezelStyle = NSBezelStyleTexturedRounded;
     [_findBarView addSubview:closeBtn];
-    
+
     // 搜索输入框
     _findTextField = [[NSTextField alloc] initWithFrame:NSMakeRect(40, 5, 200, 22)];
     _findTextField.placeholderString = @"Find in page...";
@@ -403,25 +403,25 @@ extern void appine_core_add_web_tab(NSString *urlString);
     _findTextField.action = @selector(findTextFieldAction:);
     _findTextField.focusRingType = NSFocusRingTypeNone;
     [_findBarView addSubview:_findTextField];
-    
+
     // 状态标签
     _findStatusLabel = [NSTextField labelWithString:@""];
     _findStatusLabel.frame = NSMakeRect(250, 5, 80, 22);
     _findStatusLabel.textColor = [NSColor secondaryLabelColor];
     [_findBarView addSubview:_findStatusLabel];
-    
+
     // 上一个按钮
     NSButton *prevBtn = [NSButton buttonWithTitle:@"▲" target:self action:@selector(findPrevious:)];
     prevBtn.frame = NSMakeRect(340, 4, 28, 24);
     prevBtn.bezelStyle = NSBezelStyleTexturedRounded;
     [_findBarView addSubview:prevBtn];
-    
+
     // 下一个按钮
     NSButton *nextBtn = [NSButton buttonWithTitle:@"▼" target:self action:@selector(findNext:)];
     nextBtn.frame = NSMakeRect(370, 4, 28, 24);
     nextBtn.bezelStyle = NSBezelStyleTexturedRounded;
     [_findBarView addSubview:nextBtn];
-    
+
     [self.containerView addSubview:_findBarView];
 }
 
@@ -438,16 +438,16 @@ extern void appine_core_add_web_tab(NSString *urlString);
         [self.findTextField.window makeFirstResponder:self.findTextField];
         return;
     }
-    
+
     self.findBarVisible = YES;
     self.findBarView.hidden = NO;
-    
+
     // 动态压缩 WebView 的高度，腾出 Find Bar 的空间
     CGFloat findBarHeight = 32.0;
     NSRect webFrame = self.webView.frame;
     webFrame.size.height -= findBarHeight;
     self.webView.frame = webFrame;
-    
+
     [self.findTextField.window makeFirstResponder:self.findTextField];
     if (self.findTextField.stringValue.length > 0) {
         [self.findTextField selectText:nil];
@@ -456,15 +456,15 @@ extern void appine_core_add_web_tab(NSString *urlString);
 
 - (void)closeFindBar:(id)sender {
     if (!self.findBarVisible) return;
-    
+
     self.findBarVisible = NO;
     self.findBarView.hidden = YES;
-    
+
     CGFloat findBarHeight = 32.0;
     NSRect webFrame = self.webView.frame;
     webFrame.size.height += findBarHeight;
     self.webView.frame = webFrame;
-    
+
     // 清除页面高亮和 JS 状态
     NSString *clearJS = @"\
         if (window.appineFindState && window.appineFindState.elements) {\
@@ -479,16 +479,16 @@ extern void appine_core_add_web_tab(NSString *urlString);
         window.appineFindState = { index: -1, elements: [] };\
     ";
     [self.webView evaluateJavaScript:clearJS completionHandler:nil];
-    
+
     // 清除原生查找状态（以防万一）
     if (@available(macOS 12.0, *)) {
         WKFindConfiguration *config = [[WKFindConfiguration alloc] init];
         [self.webView findString:@"" withConfiguration:config completionHandler:^(WKFindResult *result) {}];
     }
-    
+
     self.findStatusLabel.stringValue = @"";
     self.currentFindString = @"";
-    
+
     [self.webView.window makeFirstResponder:self.webView];
 }
 
@@ -519,7 +519,7 @@ extern void appine_core_add_web_tab(NSString *urlString);
             return (state.index + 1) + '/' + state.elements.length;\
         })(%@);\
     ", backwards ? @"true" : @"false"];
-    
+
     [self.webView evaluateJavaScript:jumpJS completionHandler:^(id result, NSError *error) {
         if ([result isKindOfClass:[NSString class]]) {
             self.findStatusLabel.stringValue = result; // 更新 1/12 标签
@@ -548,10 +548,10 @@ extern void appine_core_add_web_tab(NSString *urlString);
     }
 
     BOOL stringChanged = ![string isEqualToString:self.currentFindString];
-    
+
     if (stringChanged) {
         self.currentFindString = string;
-        
+
         NSString *safeString = [string stringByReplacingOccurrencesOfString:@"\\" withString:@"\\\\"];
         safeString = [safeString stringByReplacingOccurrencesOfString:@"'" withString:@"\\'"];
         safeString = [safeString stringByReplacingOccurrencesOfString:@"\n" withString:@" "];
@@ -598,7 +598,7 @@ extern void appine_core_add_web_tab(NSString *urlString);
                     const pNode = node.parentNode;\
                     const p = pNode.nodeName;\
                     if (p !== 'SCRIPT' && p !== 'STYLE' && p !== 'NOSCRIPT') {\
-                        /* 【修改】复用全局工具库，但关闭视口检查(全页搜索)、尺寸检查和点击检查 */\
+                        /* 复用全局工具库，但关闭视口检查(全页搜索)、尺寸检查和点击检查 */\
                         if (window.AppineUtils && !window.AppineUtils.isElementVisible(pNode, {\
                             checkViewport: false, \
                             checkSize: false, \
@@ -634,7 +634,7 @@ extern void appine_core_add_web_tab(NSString *urlString);
                 return window.appineFindState.elements.length > 0 ? '0/' + window.appineFindState.elements.length : '0/0';\
             })('%@');\
         ", safeString];
-        
+
         [self.webView evaluateJavaScript:highlightJS completionHandler:^(id result, NSError *error) {
             if ([result isKindOfClass:[NSString class]]) {
                 self.findStatusLabel.stringValue = result;
@@ -668,7 +668,7 @@ extern void appine_core_add_web_tab(NSString *urlString);
 - (void)controlTextDidChange:(NSNotification *)notification {
     NSTextField *field = notification.object;
     if (field == self.findTextField) {
-        // 【优化1：防抖】取消之前的延迟请求，避免用户快速打字时疯狂触发 JS
+        // 防抖：取消之前的延迟请求，避免用户快速打字时疯狂触发 JS
         [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(triggerSearchFromTyping) object:nil];
         // 延迟 0.25 秒执行搜索
         [self performSelector:@selector(triggerSearchFromTyping) withObject:nil afterDelay:0.25];
@@ -807,25 +807,25 @@ extern void appine_core_add_web_tab(NSString *urlString);
 #pragma mark - WKUIDelegate
 
 - (WKWebView *)webView:(WKWebView *)webView createWebViewWithConfiguration:(WKWebViewConfiguration *)configuration forNavigationAction:(WKNavigationAction *)navigationAction windowFeatures:(WKWindowFeatures *)windowFeatures {
-    
-    NSLog(@"[Appine-Menu] 5. createWebViewWithConfiguration: called, URL: %@", navigationAction.request.URL);
-    
+
+    APPINE_LOG(@"[Appine-Menu] 5. createWebViewWithConfiguration: called, URL: %@", navigationAction.request.URL);
+
     if ([webView isKindOfClass:[AppineWebView class]]) {
         AppineWebView *appineWebView = (AppineWebView *)webView;
-        NSLog(@"[Appine-Menu] isInterceptingDownload: %d", appineWebView.isInterceptingDownload);
-        
+        APPINE_LOG(@"[Appine-Menu] isInterceptingDownload: %d", appineWebView.isInterceptingDownload);
+
         if (appineWebView.isInterceptingDownload) {
-            NSLog(@"[Appine-Menu] 6. INTERCEPTED! Converting new window request to download task.");
+            APPINE_LOG(@"[Appine-Menu] 6. INTERCEPTED! Converting new window request to download task.");
             appineWebView.isInterceptingDownload = NO;
             if (@available(macOS 11.3, *)) {
                 [webView startDownloadUsingRequest:navigationAction.request completionHandler:^(WKDownload * _Nonnull download) {
                     download.delegate = self;
                 }];
             }
-            return nil; 
+            return nil;
         }
     }
-    
+
     if (!navigationAction.targetFrame.isMainFrame) {
         if (@available(macOS 11.3, *)) {
             if (navigationAction.shouldPerformDownload) {
@@ -849,12 +849,12 @@ extern void appine_core_add_web_tab(NSString *urlString);
 
 // upload file (<input type="file">)
 - (void)webView:(WKWebView *)webView runOpenPanelWithParameters:(WKOpenPanelParameters *)parameters initiatedByFrame:(WKFrameInfo *)frame completionHandler:(void (^)(NSArray<NSURL *> * _Nullable URLs))completionHandler {
-    
-    NSLog(@"[Appine-Upload] 1. 网页请求打开文件选择面板 (runOpenPanelWithParameters)");
-    NSLog(@"[Appine-Upload] 2. 参数 - 是否允许多选: %@, 是否允许选目录: %@", 
-          parameters.allowsMultipleSelection ? @"YES" : @"NO", 
+
+    APPINE_LOG(@"[Appine-Upload] 1. 网页请求打开文件选择面板 (runOpenPanelWithParameters)");
+    APPINE_LOG(@"[Appine-Upload] 2. 参数 - 是否允许多选: %@, 是否允许选目录: %@",
+          parameters.allowsMultipleSelection ? @"YES" : @"NO",
           parameters.allowsDirectories ? @"YES" : @"NO");
-    
+
     // 必须在主线程弹出 UI
     dispatch_async(dispatch_get_main_queue(), ^{
         NSOpenPanel *openPanel = [NSOpenPanel openPanel];
@@ -862,22 +862,22 @@ extern void appine_core_add_web_tab(NSString *urlString);
         openPanel.canChooseDirectories = parameters.allowsDirectories;
         openPanel.allowsMultipleSelection = parameters.allowsMultipleSelection;
         openPanel.message = @"请选择要上传的文件";
-        
+
         // 确保应用被激活，防止文件选择面板被挡在其他窗口后面
         [NSApp activateIgnoringOtherApps:YES];
-        
-        NSLog(@"[Appine-Upload] 3. 正在展示 NSOpenPanel...");
+
+        APPINE_LOG(@"[Appine-Upload] 3. 正在展示 NSOpenPanel...");
         [openPanel beginWithCompletionHandler:^(NSModalResponse result) {
             if (result == NSModalResponseOK) {
                 NSArray<NSURL *> *selectedURLs = openPanel.URLs;
-                NSLog(@"[Appine-Upload] 4. 用户成功选择了 %lu 个文件", (unsigned long)selectedURLs.count);
+                APPINE_LOG(@"[Appine-Upload] 4. 用户成功选择了 %lu 个文件", (unsigned long)selectedURLs.count);
                 for (NSURL *url in selectedURLs) {
-                    NSLog(@"[Appine-Upload] ---> 选中文件路径: %@", url.path);
+                    APPINE_LOG(@"[Appine-Upload] ---> 选中文件路径: %@", url.path);
                 }
                 // 将选中的文件 URL 数组回调给 WKWebView
                 completionHandler(selectedURLs);
             } else {
-                NSLog(@"[Appine-Upload] 4. 用户取消了文件选择");
+                APPINE_LOG(@"[Appine-Upload] 4. 用户取消了文件选择");
                 // 必须调用 completionHandler 并传入 nil，否则 WKWebView 会卡死或崩溃
                 completionHandler(nil);
             }
@@ -888,17 +888,17 @@ extern void appine_core_add_web_tab(NSString *urlString);
 #pragma mark - WKDownloadDelegate
 
 - (void)download:(WKDownload *)download decideDestinationUsingResponse:(NSURLResponse *)response suggestedFilename:(NSString *)suggestedFilename completionHandler:(void (^)(NSURL * _Nullable))completionHandler API_AVAILABLE(macos(11.3)) {
-    
+
     dispatch_async(dispatch_get_main_queue(), ^{
         NSSavePanel *savePanel = [NSSavePanel savePanel];
         savePanel.canCreateDirectories = YES;
         savePanel.nameFieldStringValue = suggestedFilename ?: @"download";
-        
+
         [NSApp activateIgnoringOtherApps:YES];
-        
+
         [savePanel beginWithCompletionHandler:^(NSModalResponse result) {
             if (result == NSModalResponseOK) {
-                NSLog(@"[Appine] Download started: %@", savePanel.URL.path);
+                APPINE_LOG(@"[Appine] Download started: %@", savePanel.URL.path);
                 completionHandler(savePanel.URL);
             } else {
                 completionHandler(nil);
@@ -908,11 +908,11 @@ extern void appine_core_add_web_tab(NSString *urlString);
 }
 
 - (void)downloadDidFinish:(WKDownload *)download API_AVAILABLE(macos(11.3)) {
-    NSLog(@"[Appine] Download finished successfully.");
+    APPINE_LOG(@"[Appine] Download finished successfully.");
 }
 
 - (void)download:(WKDownload *)download didFailWithError:(NSError *)error expectedResumeData:(NSData *)resumeData API_AVAILABLE(macos(11.3)) {
-    NSLog(@"[Appine] Download failed: %@", error.localizedDescription);
+    APPINE_LOG(@"[Appine] Download failed: %@", error.localizedDescription);
 }
 
 // ==========================================
@@ -920,7 +920,7 @@ extern void appine_core_add_web_tab(NSString *urlString);
 // ==========================================
 - (void)userContentController:(WKUserContentController *)userContentController didReceiveScriptMessage:(WKScriptMessage *)message {
     if ([message.name isEqualToString:@"appineLog"]) {
-        NSLog(@"[Appine-JS] %@", message.body);
+        APPINE_LOG(@"[Appine-JS] %@", message.body);
     }
 }
 

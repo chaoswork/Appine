@@ -20,6 +20,7 @@
 - **无缝集成**：当你分割或调整 Emacs 窗口大小时，原生视图会自动调整大小和移动。
 - **标签页管理**：支持多个嵌入的标签页，可以直接在 Emacs 中进行切换和关闭。
 - **Org-mode集成**：可以使用 Appine 打开 Org 文件中的链接和文件。
+- **插件支持**: 现在可以给 Appine 的浏览器写一些简单的插件了。
 
 ## 📖 使用方法 (Usage)
 
@@ -49,6 +50,10 @@ https://github.com/user-attachments/assets/a7eaf65a-da9b-45ee-9b24-ca835379fc34
 一段 Open Web Page 的视频地址
 
 https://github.com/user-attachments/assets/f63eff4e-754e-4d4f-b11c-aa9d3f982c67
+
+为了快速打开网页上的链接，我给 Appine 内部的浏览器写了个简单的 link-hints 插件，可以类似 Vimium 那样，按 `f` 就可以标注出网页上链接，然后按相应的键就可以快速打开当前网页中的链接，或者按 `q` 退出 link-hints, 如下图： 
+
+<img width="3024" height="1898" alt="Image" src="https://github.com/user-attachments/assets/2e86d223-0d5f-47a3-9e90-b3d3afa36c78" />
 
 ### 打开 PDF 或者其他文档
 运行 `M-x appine-open-file`。选择一个 PDF 文件，它将使用 macOS PDFKit 进行渲染。选择其他文件则会使用 quicklook 进行预览。
