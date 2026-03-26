@@ -261,10 +261,10 @@ extern void appine_core_add_web_tab(NSString *urlString);
         appineDir = [@"~/.emacs.d/straight/repos/appine" stringByExpandingTildeInPath];
         APPINE_LOG(@"[Warning] 无法动态获取 dylib 路径，使用默认路径: %@", appineDir);
     }
-    NSString *pluginsDir = [appineDir stringByAppendingPathComponent:@"plugins"];
-    // NSString *appineDir = [@"~/git-local/appine-dev" stringByExpandingTildeInPath];
+    NSString *extensionDir = [appineDir stringByAppendingPathComponent:@"browser-extension"];
+    NSString *pluginsDir = [extensionDir stringByAppendingPathComponent:@"plugins"];
     // 注入全局工具库 (AppineUtils)
-    NSString *utilsPath = [appineDir stringByAppendingPathComponent:@"utils.js"];
+    NSString *utilsPath = [extensionDir stringByAppendingPathComponent:@"utils.js"];
     NSString *utilsJS = [NSString stringWithContentsOfFile:utilsPath encoding:NSUTF8StringEncoding error:nil];
     if (utilsJS) {
         // 注意：这里使用 WKUserScriptInjectionTimeAtDocumentStart，确保它最早可用
@@ -275,45 +275,46 @@ extern void appine_core_add_web_tab(NSString *urlString);
     } else {
         APPINE_LOG(@"[Appine-Warning] 未找到 utils.js");
     }
-
-
-    // 1. 读取 plugins-loader.js
-    NSString *loaderPath = [appineDir stringByAppendingPathComponent:@"plugins-loader.js"];
-    NSString *loaderJS = [NSString stringWithContentsOfFile:loaderPath encoding:NSUTF8StringEncoding error:nil];
-
-    if (loaderJS) {
-        loaderJS = [loaderJS stringByReplacingOccurrencesOfString:@"export default PluginLoader;" withString:@"window.PluginLoader = PluginLoader;"];
-
-        // 将 loader 单独作为一个 Script 注入
-        WKUserScript *loaderScript = [[WKUserScript alloc] initWithSource:loaderJS
+    // 1. 读取并注入 content.js (作为基础环境)
+    NSString *contentJSPath = [extensionDir stringByAppendingPathComponent:@"content.js"];
+    NSString *contentJS = [NSString stringWithContentsOfFile:contentJSPath encoding:NSUTF8StringEncoding error:nil];
+    
+    if (contentJS) {
+        // 将 content.js 作为一个 Script 注入
+        WKUserScript *loaderScript = [[WKUserScript alloc] initWithSource:contentJS
                                                             injectionTime:WKUserScriptInjectionTimeAtDocumentEnd
                                                          forMainFrameOnly:YES];
         [config.userContentController addUserScript:loaderScript];
-
+    
+        // 2. 遍历 plugins 目录，注入各个插件
         NSArray *plugins = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:pluginsDir error:nil];
         for (NSString *pluginName in plugins) {
-            if ([pluginName hasPrefix:@"."]) continue;
-
+            if ([pluginName hasPrefix:@"."]) continue; // 忽略隐藏文件
+    
             NSString *pluginIndexPath = [NSString stringWithFormat:@"%@/%@/index.js", pluginsDir, pluginName];
             NSString *pluginJS = [NSString stringWithContentsOfFile:pluginIndexPath encoding:NSUTF8StringEncoding error:nil];
-
+    
             if (pluginJS) {
-                // 原生端也打印一下，方便确认读取到了文件
-                APPINE_LOG(@"[Appine-Plugin] 准备注入插件: %@", pluginName);
-
+                NSLog(@"[Appine-Plugin] 准备注入插件: %@", pluginName);
+    
                 NSMutableString *pluginInjectionJS = [NSMutableString string];
+                
+                // 【核心】替换 export default 为 return，包装成 IIFE
                 NSString *modifiedJS = [pluginJS stringByReplacingOccurrencesOfString:@"export default" withString:@"return"];
-
+    
                 [pluginInjectionJS appendFormat:@"{\n"];
                 [pluginInjectionJS appendFormat:@"  try {\n"];
                 [pluginInjectionJS appendFormat:@"    console.log('[Appine-Plugin] ⏳ 开始解析并执行插件: %@');\n", pluginName];
                 [pluginInjectionJS appendFormat:@"    const pluginObj = (function() {\n%@\n    })();\n", modifiedJS];
+                
+                // 调用 content.js 中暴露的 window.PluginLoader
                 [pluginInjectionJS appendFormat:@"    window.PluginLoader.register(pluginObj);\n"];
+                
                 [pluginInjectionJS appendFormat:@"  } catch(e) {\n"];
                 [pluginInjectionJS appendFormat:@"    console.log('[Appine-Plugin] ❌ 执行插件 %@ 失败: ' + (e.message || e));\n", pluginName];
                 [pluginInjectionJS appendFormat:@"  }\n"];
                 [pluginInjectionJS appendFormat:@"}\n"];
-
+    
                 // 为每一个插件单独创建一个 WKUserScript
                 WKUserScript *pluginScript = [[WKUserScript alloc] initWithSource:pluginInjectionJS
                                                                     injectionTime:WKUserScriptInjectionTimeAtDocumentEnd
@@ -322,7 +323,7 @@ extern void appine_core_add_web_tab(NSString *urlString);
             }
         }
     } else {
-        APPINE_LOG(@"[Appine-Plugin] ⚠️ 未找到 plugins-loader.js");
+        NSLog(@"[Appine-Plugin] ⚠️ 未找到 content.js");
     }
 
     // 1. 强制使用系统的默认持久化数据存储（保存 Cookie、LocalStorage、Session 等）
