@@ -3,6 +3,9 @@
   "name": "Appine Plugins Loader",
   "version": "1.0",
   "description": "原生 ES Module 方式加载插件，无视 CSP",
+  "permissions": [
+    "storage"
+  ],
   "content_scripts": [
     {
       "matches": ["<all_urls>"],

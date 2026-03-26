@@ -1,4 +1,4 @@
-// Selection Assistant v5.3 (Fixed Translation, Settings & Line Breaks)
+// Selection Assistant v0.1 (With Debug Logs)
 let api = null, curText = '', curRect = null, abortCtrl = null, clickHandler = null;
 let cfg = { url: 'https://api.openai.com/v1', key: '', models: ['gpt-3.5-turbo', 'gpt-4o', 'deepseek-reasoner'], trans: 'gpt-3.5-turbo', lang: '中文' };
 let sessions = [], activePop = null, activeSide = null;
@@ -8,8 +8,43 @@ const iEdit = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" strok
 const iRetry = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2v6h-6M3 12a9 9 0 1 0 2.6-6.4L2 8"/></svg>`;
 const iMore = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/></svg>`;
 
-const loadData = () => { try { Object.assign(cfg, JSON.parse(localStorage.getItem('ap_cfg')||'{}')); sessions = JSON.parse(localStorage.getItem('ap_sess')||'[]'); } catch(e){} };
-const saveData = () => { localStorage.setItem('ap_cfg', JSON.stringify(cfg)); localStorage.setItem('ap_sess', JSON.stringify(sessions.slice(0,20))); };
+const loadData = async () => { 
+  try { 
+    let d = null;
+    if (api.getStorage) d = await api.getStorage(['ap_cfg', 'ap_sess']);
+    
+    if (d && (d.ap_cfg || d.ap_sess)) {
+      console.log('[Appine-Debug] 🎯 使用全局存储 (Chrome Storage)');
+      if (d.ap_cfg) Object.assign(cfg, JSON.parse(d.ap_cfg));
+      if (d.ap_sess) sessions = JSON.parse(d.ap_sess);
+    } else if (window.__APPINE_STORAGE__) {
+      console.log('[Appine-Debug] 🎯 使用全局存储 (iOS NSUserDefaults)');
+      if (window.__APPINE_STORAGE__.ap_cfg) Object.assign(cfg, JSON.parse(window.__APPINE_STORAGE__.ap_cfg));
+      if (window.__APPINE_STORAGE__.ap_sess) sessions = JSON.parse(window.__APPINE_STORAGE__.ap_sess);
+    } else {
+      console.log('[Appine-Debug] ⚠️ 退回到单网页存储 (localStorage)');
+      Object.assign(cfg, JSON.parse(localStorage.getItem('ap_cfg')||'{}')); 
+      sessions = JSON.parse(localStorage.getItem('ap_sess')||'[]'); 
+    }
+  } catch(e){
+    console.error('[Appine-Debug] ❌ loadData 报错:', e);
+  } 
+};
+
+const saveData = () => { 
+  const c = JSON.stringify(cfg), s = JSON.stringify(sessions.slice(0,20));
+  try {
+    if (api.setStorage) {
+      api.setStorage({ ap_cfg: c, ap_sess: s });
+    }
+    if (window.webkit?.messageHandlers?.appineSaveData) {
+      window.webkit.messageHandlers.appineSaveData.postMessage({ ap_cfg: c, ap_sess: s });
+      window.__APPINE_STORAGE__ = { ap_cfg: c, ap_sess: s }; 
+    }
+    localStorage.setItem('ap_cfg', c); localStorage.setItem('ap_sess', s); 
+  } catch(e){}
+};
+
 const renderMD = t => (t||'').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/```(\w*)\n([\s\S]*?)```/g, (m,l,c)=>`<pre class="ap-md-pre"><code>${c}</code></pre>`).replace(/`([^`\n]+)`/g, '<code class="ap-md-code">$1</code>').replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
 
 function initUI() {
@@ -29,7 +64,6 @@ function initUI() {
     .ap-user-acts { display:flex; opacity:0; transition:opacity .2s; margin-top:8px; }
     .ap-user-bubble { background:#f0f4f9; padding:12px 16px; border-radius:18px; font-size:15px; max-width:80%; white-space:pre-wrap; word-wrap:break-word; }
     .ap-ai-row { display:flex; gap:12px; } .ap-ai-content { flex:1; min-width:0; }
-    /* 修复换行问题：添加了 white-space: pre-wrap */
     .ap-ai-text { font-size:15px; line-height:1.6; word-wrap:break-word; white-space:pre-wrap; }
     .ap-ai-acts { display:flex; gap:8px; margin-top:8px; position:relative; color:#5f6368; }
     .ap-think-det { margin-bottom:12px; } .ap-think-sum { cursor:pointer; color:#5f6368; font-size:13px; }
@@ -44,24 +78,21 @@ function initUI() {
 
   const inputHtml = (id, mid) => `<div class="ap-input-wrap"><div class="ap-input-box"><textarea class="ap-textarea" id="${id}" placeholder="输入指令... (Enter 发送)"></textarea><div class="ap-toolbar"><div style="display:flex;gap:12px"><div class="ap-icon">＋</div><div class="ap-icon">⚯ 工具 <span style="width:6px;height:6px;background:#1a73e8;border-radius:50%"></span></div></div><select id="${mid}" style="border:none;outline:none;background:transparent;color:#5f6368;cursor:pointer"></select></div></div></div>`;
   
+  const inpStyle = "width:100%;margin-bottom:12px;padding:8px;box-sizing:border-box;border:1px solid #dadce0;border-radius:4px;font-size:14px;color:#333;outline:none;";
+  
   document.body.insertAdjacentHTML('beforeend', `
     <div id="ap-act" class="ap-card" style="padding:6px;flex-direction:row;gap:4px"><button class="ap-btn" data-act="trans">🌐 翻译</button><button class="ap-btn" data-act="ask">✨ 问AI</button></div>
-    
-    <!-- 重新设计的翻译卡片 -->
     <div id="ap-trans" class="ap-card" style="width:380px"><div class="ap-header"><span>🌐 翻译</span><span style="cursor:pointer" data-act="hide">✕</span></div><div class="ap-msgs" style="min-height:100px;max-height:300px"><div class="ap-ai-row"><div style="font-size:20px">✨</div><div class="ap-ai-content"><div id="ap-trans-res" class="ap-ai-text"></div><div class="ap-ai-acts"><div class="ap-icon" data-act="copyTrans">${iCopy}</div></div></div></div></div></div>
-    
     <div id="ap-pop" class="ap-card" style="width:420px"><div class="ap-header"><span>✨ 问问 AI</span><span style="cursor:pointer" data-act="hide">✕</span></div><div id="ap-pop-msg" class="ap-msgs"></div>${inputHtml('ap-pop-in', 'ap-pop-mod')}</div>
     <div id="ap-float" class="ap-float" data-act="toggleSide">✨</div>
     <div id="ap-side" class="ap-side"><div style="display:flex;height:100%"><div style="width:220px;background:#f8f9fa;border-right:1px solid #e8eaed;display:flex;flex-direction:column"><div class="ap-header"><span>会话记录</span><span style="cursor:pointer" data-act="set">⚙️</span></div><div id="ap-side-list" style="flex:1;overflow-y:auto"></div></div><div style="flex:1;display:flex;flex-direction:column"><div class="ap-header"><span id="ap-side-title">选择会话</span><span style="cursor:pointer" data-act="hide">✕</span></div><div id="ap-side-msg" class="ap-msgs"></div>${inputHtml('ap-side-in', 'ap-side-mod')}</div></div></div>
-    
-    <!-- 补充了翻译模型和目标语言的设置面板 -->
-    <div id="ap-set" style="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:2147483648;display:none;align-items:center;justify-content:center"><div style="background:#fff;width:400px;padding:24px;border-radius:12px"><h3 style="margin-top:0">API 设置</h3>
-      <input id="cfg-url" placeholder="Base URL" style="width:100%;margin-bottom:12px;padding:8px;box-sizing:border-box">
-      <input id="cfg-key" type="password" placeholder="API Key" style="width:100%;margin-bottom:12px;padding:8px;box-sizing:border-box">
-      <input id="cfg-mods" placeholder="对话模型 (逗号分隔)" style="width:100%;margin-bottom:12px;padding:8px;box-sizing:border-box">
-      <input id="cfg-trans" placeholder="翻译模型 (如 gpt-3.5-turbo)" style="width:100%;margin-bottom:12px;padding:8px;box-sizing:border-box">
-      <input id="cfg-lang" placeholder="翻译目标语言 (如 中文)" style="width:100%;margin-bottom:12px;padding:8px;box-sizing:border-box">
-      <div style="text-align:right;margin-top:16px"><button class="ap-btn" data-act="cancelSet">取消</button><button class="ap-btn" style="background:#1a73e8;color:#fff" data-act="saveSet">保存</button></div>
+    <div id="ap-set" style="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:2147483648;display:none;align-items:center;justify-content:center"><div style="background:#fff;width:400px;padding:24px;border-radius:12px;box-shadow:0 12px 32px rgba(0,0,0,.2)"><h3 style="margin-top:0;color:#333">API 设置</h3>
+      <input id="cfg-url" placeholder="Base URL" style="${inpStyle}">
+      <input id="cfg-key" type="password" placeholder="API Key" style="${inpStyle}">
+      <input id="cfg-mods" placeholder="对话模型 (逗号分隔)" style="${inpStyle}">
+      <input id="cfg-trans" placeholder="翻译模型 (如 gpt-3.5-turbo)" style="${inpStyle}">
+      <input id="cfg-lang" placeholder="翻译目标语言 (如 中文)" style="${inpStyle}">
+      <div style="text-align:right;margin-top:16px"><button class="ap-btn" data-act="cancelSet" style="border:1px solid #dadce0;margin-right:8px">取消</button><button class="ap-btn" style="background:#1a73e8;color:#fff;border:none" data-act="saveSet">保存</button></div>
     </div></div>
   `);
 }
@@ -140,7 +171,6 @@ async function handleSend(sid, cid, inId, modId) {
 
 const apAsk = () => { apHide(); const s = {id:Date.now().toString(), title:curText.substring(0,15)+'...', context:curText, messages:[], updatedAt:Date.now()}; sessions.unshift(s); saveData(); activePop=s.id; posCard('ap-pop'); document.getElementById('ap-pop-in').value=''; document.getElementById('ap-pop-in').focus(); renderMsgs('ap-pop-msg', s); };
 
-// 修复翻译逻辑：使用 innerHTML 渲染 Markdown，并拼接完整文本
 const apTrans = () => { 
   apHide(); posCard('ap-trans'); 
   const c = document.getElementById('ap-trans-res'); 
@@ -157,8 +187,11 @@ const apTrans = () => {
 
 export default {
   name: 'selection-assistant',
-  setup(a) {
-    api = a; loadData(); initUI(); updMods();
+  async setup(a) {
+    api = a; 
+    await loadData(); 
+    initUI(); 
+    updMods();
     
     clickHandler = e => {
       const t = e.target.closest('[data-act]'); if(!t) return;
@@ -185,7 +218,7 @@ export default {
     });
     
     ['ap-pop-in','ap-side-in'].forEach(id => document.getElementById(id).addEventListener('keydown', e => { if(e.key==='Enter'&&!e.shiftKey) { e.preventDefault(); handleSend(id==='ap-pop-in'?activePop:activeSide, id==='ap-pop-in'?'ap-pop-msg':'ap-side-msg', id, id==='ap-pop-in'?'ap-pop-mod':'ap-side-mod'); } }));
-    api.log('Selection Assistant v5.3 loaded');
+    api.log('Selection Assistant v0.1 loaded');
   },
   teardown() { 
     if(abortCtrl) abortCtrl.abort(); 
