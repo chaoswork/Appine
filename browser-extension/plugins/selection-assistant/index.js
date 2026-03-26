@@ -1,4 +1,4 @@
-// Selection Assistant v0.1 (With Debug Logs)
+// Selection Assistant v0.8
 let api = null, curText = '', curRect = null, abortCtrl = null, clickHandler = null;
 let cfg = { url: 'https://api.openai.com/v1', key: '', models: ['gpt-3.5-turbo', 'gpt-4o', 'deepseek-reasoner'], trans: 'gpt-3.5-turbo', lang: '中文' };
 let sessions = [], activePop = null, activeSide = null;
@@ -14,15 +14,12 @@ const loadData = async () => {
     if (api.getStorage) d = await api.getStorage(['ap_cfg', 'ap_sess']);
     
     if (d && (d.ap_cfg || d.ap_sess)) {
-      console.log('[Appine-Debug] 🎯 使用全局存储 (Chrome Storage)');
       if (d.ap_cfg) Object.assign(cfg, JSON.parse(d.ap_cfg));
       if (d.ap_sess) sessions = JSON.parse(d.ap_sess);
     } else if (window.__APPINE_STORAGE__) {
-      console.log('[Appine-Debug] 🎯 使用全局存储 (iOS NSUserDefaults)');
       if (window.__APPINE_STORAGE__.ap_cfg) Object.assign(cfg, JSON.parse(window.__APPINE_STORAGE__.ap_cfg));
       if (window.__APPINE_STORAGE__.ap_sess) sessions = JSON.parse(window.__APPINE_STORAGE__.ap_sess);
     } else {
-      console.log('[Appine-Debug] ⚠️ 退回到单网页存储 (localStorage)');
       Object.assign(cfg, JSON.parse(localStorage.getItem('ap_cfg')||'{}')); 
       sessions = JSON.parse(localStorage.getItem('ap_sess')||'[]'); 
     }
@@ -49,8 +46,9 @@ const renderMD = t => (t||'').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(
 
 function initUI() {
   if (document.getElementById('ap-style')) return;
+  // 给所有根节点加上 pointer-events: auto !important; 抵抗宿主网页的禁用
   document.head.insertAdjacentHTML('beforeend', `<style id="ap-style">
-    .ap-card { position:absolute; z-index:2147483647; background:#fff; border:1px solid #e0e0e0; border-radius:12px; box-shadow:0 8px 24px rgba(0,0,0,.12); font-family:sans-serif; display:none; flex-direction:column; }
+    .ap-card { position:absolute; z-index:2147483647; background:#fff; border:1px solid #e0e0e0; border-radius:12px; box-shadow:0 8px 24px rgba(0,0,0,.12); font-family:sans-serif; display:none; flex-direction:column; pointer-events:auto !important; }
     .ap-btn { border:none; background:transparent; padding:8px 12px; cursor:pointer; font-size:14px; border-radius:4px; color:#333; } .ap-btn:hover { background:#f0f0f0; }
     .ap-header { display:flex; justify-content:space-between; align-items:center; padding:12px 16px; font-weight:500; border-bottom:1px solid #eee; }
     .ap-msgs { flex:1; padding:16px; overflow-y:auto; display:flex; flex-direction:column; gap:24px; min-height:300px; max-height:500px; }
@@ -70,8 +68,8 @@ function initUI() {
     .ap-think-content { padding:10px; border-left:2px solid #e8eaed; color:#5f6368; font-size:14px; margin-top:8px; white-space:pre-wrap; background:#fcfcfc; }
     .ap-md-pre { background:#f8f9fa; border:1px solid #e8eaed; padding:12px; border-radius:8px; overflow-x:auto; font-family:monospace; font-size:13px; }
     .ap-md-code { background:#f1f3f4; padding:2px 6px; border-radius:4px; color:#d93025; font-family:monospace; }
-    .ap-float { position:fixed; right:-20px; bottom:50px; width:44px; height:44px; background:#fff; border:1px solid #ddd; border-radius:50%; display:flex; align-items:center; justify-content:center; cursor:pointer; z-index:2147483646; transition:right .3s; font-size:20px; box-shadow:-2px 2px 8px rgba(0,0,0,.1); } .ap-float:hover { right:20px; }
-    .ap-side { position:fixed; right:20px; bottom:105px; width:700px; height:600px; max-width:calc(100vw - 40px); max-height:calc(100vh - 120px); background:#fff; border:1px solid #ddd; border-radius:16px; box-shadow:0 12px 32px rgba(0,0,0,.15); z-index:2147483647; display:none; overflow:hidden; }
+    .ap-float { position:fixed; right:-20px; bottom:50px; width:44px; height:44px; background:#fff; border:1px solid #ddd; border-radius:50%; display:flex; align-items:center; justify-content:center; cursor:pointer; z-index:2147483646; transition:right .3s; font-size:20px; box-shadow:-2px 2px 8px rgba(0,0,0,.1); pointer-events:auto !important; } .ap-float:hover { right:20px; }
+    .ap-side { position:fixed; right:20px; bottom:105px; width:700px; height:600px; max-width:calc(100vw - 40px); max-height:calc(100vh - 120px); background:#fff; border:1px solid #ddd; border-radius:16px; box-shadow:0 12px 32px rgba(0,0,0,.15); z-index:2147483647; display:none; overflow:hidden; pointer-events:auto !important; }
     .ap-menu { display:none; position:absolute; top:100%; left:60px; background:#fff; border:1px solid #dadce0; border-radius:8px; padding:8px; z-index:10; width:100px; box-shadow:0 4px 12px rgba(0,0,0,.1); flex-direction:column; gap:4px; }
     .ap-menu-item { padding:6px; cursor:pointer; border-radius:4px; font-size:13px; } .ap-menu-item:hover { background:#f0f4f9; }
   </style>`);
@@ -80,13 +78,14 @@ function initUI() {
   
   const inpStyle = "width:100%;margin-bottom:12px;padding:8px;box-sizing:border-box;border:1px solid #dadce0;border-radius:4px;font-size:14px;color:#333;outline:none;";
   
+  // 设置面板也加上 pointer-events:auto !important;
   document.body.insertAdjacentHTML('beforeend', `
     <div id="ap-act" class="ap-card" style="padding:6px;flex-direction:row;gap:4px"><button class="ap-btn" data-act="trans">🌐 翻译</button><button class="ap-btn" data-act="ask">✨ 问AI</button></div>
     <div id="ap-trans" class="ap-card" style="width:380px"><div class="ap-header"><span>🌐 翻译</span><span style="cursor:pointer" data-act="hide">✕</span></div><div class="ap-msgs" style="min-height:100px;max-height:300px"><div class="ap-ai-row"><div style="font-size:20px">✨</div><div class="ap-ai-content"><div id="ap-trans-res" class="ap-ai-text"></div><div class="ap-ai-acts"><div class="ap-icon" data-act="copyTrans">${iCopy}</div></div></div></div></div></div>
     <div id="ap-pop" class="ap-card" style="width:420px"><div class="ap-header"><span>✨ 问问 AI</span><span style="cursor:pointer" data-act="hide">✕</span></div><div id="ap-pop-msg" class="ap-msgs"></div>${inputHtml('ap-pop-in', 'ap-pop-mod')}</div>
     <div id="ap-float" class="ap-float" data-act="toggleSide">✨</div>
     <div id="ap-side" class="ap-side"><div style="display:flex;height:100%"><div style="width:220px;background:#f8f9fa;border-right:1px solid #e8eaed;display:flex;flex-direction:column"><div class="ap-header"><span>会话记录</span><span style="cursor:pointer" data-act="set">⚙️</span></div><div id="ap-side-list" style="flex:1;overflow-y:auto"></div></div><div style="flex:1;display:flex;flex-direction:column"><div class="ap-header"><span id="ap-side-title">选择会话</span><span style="cursor:pointer" data-act="hide">✕</span></div><div id="ap-side-msg" class="ap-msgs"></div>${inputHtml('ap-side-in', 'ap-side-mod')}</div></div></div>
-    <div id="ap-set" style="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:2147483648;display:none;align-items:center;justify-content:center"><div style="background:#fff;width:400px;padding:24px;border-radius:12px;box-shadow:0 12px 32px rgba(0,0,0,.2)"><h3 style="margin-top:0;color:#333">API 设置</h3>
+    <div id="ap-set" style="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:2147483648;display:none;align-items:center;justify-content:center;pointer-events:auto !important;"><div style="background:#fff;width:400px;padding:24px;border-radius:12px;box-shadow:0 12px 32px rgba(0,0,0,.2)"><h3 style="margin-top:0;color:#333">API 设置</h3>
       <input id="cfg-url" placeholder="Base URL" style="${inpStyle}">
       <input id="cfg-key" type="password" placeholder="API Key" style="${inpStyle}">
       <input id="cfg-mods" placeholder="对话模型 (逗号分隔)" style="${inpStyle}">
@@ -193,8 +192,17 @@ export default {
     initUI(); 
     updMods();
     
+    // 拦截事件，防止宿主网页干扰
     clickHandler = e => {
+      // 如果点击发生在我们的 UI 内部，立即阻止事件传播给宿主网页
+      const inOurUI = ['ap-act','ap-trans','ap-pop','ap-side','ap-set','ap-float'].some(id=>document.getElementById(id)?.contains(e.target));
+      if (inOurUI) {
+        e.stopPropagation();
+      }
+
       const t = e.target.closest('[data-act]'); if(!t) return;
+      e.preventDefault(); // 阻止按钮的默认行为
+
       const {act, sid, idx, cid, val} = t.dataset;
       const acts = {
         trans: apTrans, ask: apAsk, hide: apHide, toggleSide: apToggleSide, set: apSet,
@@ -210,7 +218,17 @@ export default {
       };
       if(acts[act]) acts[act]();
     };
-    document.addEventListener('click', clickHandler);
+    
+    // 使用 api.on 注册点击事件 (底层是 window.addEventListener(..., true) 捕获阶段)
+    // 这样能抢在 React 之前拿到点击事件
+    api.on('click', clickHandler);
+
+    // 为了防止宿主网页在 mousedown 阶段清除选区或关闭弹窗，也拦截 mousedown
+    api.on('mousedown', e => {
+      if(['ap-act','ap-trans','ap-pop','ap-side','ap-set','ap-float'].some(id=>document.getElementById(id)?.contains(e.target))) {
+        e.stopPropagation();
+      }
+    });
 
     api.on('mouseup', e => {
       if(['ap-act','ap-trans','ap-pop','ap-side','ap-set','ap-float'].some(id=>document.getElementById(id)?.contains(e.target))) return;
@@ -218,11 +236,11 @@ export default {
     });
     
     ['ap-pop-in','ap-side-in'].forEach(id => document.getElementById(id).addEventListener('keydown', e => { if(e.key==='Enter'&&!e.shiftKey) { e.preventDefault(); handleSend(id==='ap-pop-in'?activePop:activeSide, id==='ap-pop-in'?'ap-pop-msg':'ap-side-msg', id, id==='ap-pop-in'?'ap-pop-mod':'ap-side-mod'); } }));
-    api.log('Selection Assistant v0.1 loaded');
+    api.log('Selection Assistant v0.8 loaded');
   },
   teardown() { 
     if(abortCtrl) abortCtrl.abort(); 
-    if(clickHandler) document.removeEventListener('click', clickHandler);
+    if(clickHandler) api.off('click', clickHandler); // 记得清理捕获阶段的事件
     ['ap-act','ap-trans','ap-pop','ap-float','ap-side','ap-set','ap-style'].forEach(id=>document.getElementById(id)?.remove()); 
   }
 };
