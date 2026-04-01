@@ -1,6 +1,9 @@
 // Selection Assistant v0.8
 let api = null, curText = '', curRect = null, abortCtrl = null, clickHandler = null;
-let cfg = { url: 'https://api.openai.com/v1', key: '', models: ['gpt-3.5-turbo', 'gpt-4o', 'deepseek-reasoner'], trans: 'gpt-3.5-turbo', lang: '中文' };
+// 可配置项
+let cfg = { url: 'https://api.openai.com/v1', key: '', models: ['gpt-3.5-turbo', 'gpt-4o', 'deepseek-reasoner'], trans: 'gpt-3.5-turbo', trans_system_prompt: 'Translate to Chinese. Only output translation.', enableTrans: true, enableCapture: true, captureKey: 'c' };
+
+
 let sessions = [], activePop = null, activeSide = null;
 
 const iCopy = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>`;
@@ -75,26 +78,46 @@ function initUI() {
   </style>`);
 
   const inputHtml = (id, mid) => `<div class="ap-input-wrap"><div class="ap-input-box"><textarea class="ap-textarea" id="${id}" placeholder="输入指令... (Enter 发送)"></textarea><div class="ap-toolbar"><div style="display:flex;gap:12px"><div class="ap-icon">＋</div><div class="ap-icon">⚯ 工具 <span style="width:6px;height:6px;background:#1a73e8;border-radius:50%"></span></div></div><select id="${mid}" style="border:none;outline:none;background:transparent;color:#5f6368;cursor:pointer"></select></div></div></div>`;
-  
-  const inpStyle = "width:100%;margin-bottom:12px;padding:8px;box-sizing:border-box;border:1px solid #dadce0;border-radius:4px;font-size:14px;color:#333;outline:none;";
+
+  const inpStyle = "width:100%;padding:8px;box-sizing:border-box;border:1px solid #dadce0;border-radius:4px;font-size:14px;color:#333;outline:none;";
+  const inpWrap = (lbl, id, placeholder, type="text") => `<div style="margin-bottom:12px"><div style="font-size:12px;color:#5f6368;margin-bottom:4px">${lbl}</div><input id="${id}" type="${type}" placeholder="${placeholder}" style="${inpStyle}"></div>`;
+  const secTitle = (t) => `<div style="font-size:14px;font-weight:bold;color:#1a73e8;margin:16px 0 8px;border-bottom:1px solid #eee;padding-bottom:4px">${t}</div>`;
   
   // 设置面板也加上 pointer-events:auto !important;
   document.body.insertAdjacentHTML('beforeend', `
-    <div id="ap-act" class="ap-card" style="padding:6px;flex-direction:row;gap:4px"><button class="ap-btn" data-act="trans">🌐 翻译</button><button class="ap-btn" data-act="ask">✨ 问AI</button></div>
+    <div id="ap-act" class="ap-card" style="padding:6px;flex-direction:row;gap:4px"></div>
     <div id="ap-trans" class="ap-card" style="width:380px"><div class="ap-header"><span>🌐 翻译</span><span style="cursor:pointer" data-act="hide">✕</span></div><div class="ap-msgs" style="min-height:100px;max-height:300px"><div class="ap-ai-row"><div style="font-size:20px">✨</div><div class="ap-ai-content"><div id="ap-trans-res" class="ap-ai-text"></div><div class="ap-ai-acts"><div class="ap-icon" data-act="copyTrans">${iCopy}</div></div></div></div></div></div>
     <div id="ap-pop" class="ap-card" style="width:420px"><div class="ap-header"><span>✨ 问问 AI</span><span style="cursor:pointer" data-act="hide">✕</span></div><div id="ap-pop-msg" class="ap-msgs"></div>${inputHtml('ap-pop-in', 'ap-pop-mod')}</div>
     <div id="ap-float" class="ap-float" data-act="toggleSide">✨</div>
     <div id="ap-side" class="ap-side"><div style="display:flex;height:100%"><div style="width:220px;background:#f8f9fa;border-right:1px solid #e8eaed;display:flex;flex-direction:column"><div class="ap-header"><span>会话记录</span><span style="cursor:pointer" data-act="set">⚙️</span></div><div id="ap-side-list" style="flex:1;overflow-y:auto"></div></div><div style="flex:1;display:flex;flex-direction:column"><div class="ap-header"><span id="ap-side-title">选择会话</span><span style="cursor:pointer" data-act="hide">✕</span></div><div id="ap-side-msg" class="ap-msgs"></div>${inputHtml('ap-side-in', 'ap-side-mod')}</div></div></div>
-    <div id="ap-set" style="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:2147483648;display:none;align-items:center;justify-content:center;pointer-events:auto !important;"><div style="background:#fff;width:400px;padding:24px;border-radius:12px;box-shadow:0 12px 32px rgba(0,0,0,.2)"><h3 style="margin-top:0;color:#333">API 设置</h3>
-      <input id="cfg-url" placeholder="Base URL" style="${inpStyle}">
-      <input id="cfg-key" type="password" placeholder="API Key" style="${inpStyle}">
-      <input id="cfg-mods" placeholder="对话模型 (逗号分隔)" style="${inpStyle}">
-      <input id="cfg-trans" placeholder="翻译模型 (如 gpt-3.5-turbo)" style="${inpStyle}">
-      <input id="cfg-lang" placeholder="翻译目标语言 (如 中文)" style="${inpStyle}">
-      <div style="text-align:right;margin-top:16px"><button class="ap-btn" data-act="cancelSet" style="border:1px solid #dadce0;margin-right:8px">取消</button><button class="ap-btn" style="background:#1a73e8;color:#fff;border:none" data-act="saveSet">保存</button></div>
+    <div id="ap-set" style="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:2147483648;display:none;align-items:center;justify-content:center;pointer-events:auto !important;"><div style="background:#fff;width:400px;max-height:85vh;overflow-y:auto;padding:24px;border-radius:12px;box-shadow:0 12px 32px rgba(0,0,0,.2)"><h3 style="margin-top:0;color:#333">Settings</h3>
+      ${secTitle('API & Chat')}
+      ${inpWrap('Base URL', 'cfg-url', 'https://api.openai.com/v1')}
+      ${inpWrap('API Key', 'cfg-key', 'sk-...', 'password')}
+      ${inpWrap('Chat Models (comma separated)', 'cfg-mods', 'gpt-3.5-turbo, gpt-4o')}
+      
+      ${secTitle('Translation')}
+      <label style="display:flex;align-items:center;font-size:13px;color:#333;margin-bottom:8px;cursor:pointer"><input type="checkbox" id="cfg-en-trans" style="margin-right:8px"> Enable Translation</label>
+      ${inpWrap('Translation Model', 'cfg-trans', 'gpt-3.5-turbo')}
+      ${inpWrap('System Prompt', 'cfg-trans-prompt', 'Translate to 中文. Only output translation.')}
+
+      ${secTitle('Org Capture')}
+      <label style="display:flex;align-items:center;font-size:13px;color:#333;margin-bottom:8px;cursor:pointer"><input type="checkbox" id="cfg-en-cap" style="margin-right:8px"> Enable Capture</label>
+      ${inpWrap('Capture Template Key', 'cfg-cap-key', 'c')}
+
+      <div style="text-align:right;margin-top:16px"><button class="ap-btn" data-act="cancelSet" style="border:1px solid #dadce0;margin-right:8px">Cancel</button><button class="ap-btn" style="background:#1a73e8;color:#fff;border:none" data-act="saveSet">Save</button></div>
     </div></div>
   `);
 }
+
+const renderActBtns = () => {
+  const c = document.getElementById('ap-act'); if(!c) return;
+  let html = '';
+  if(cfg.enableTrans) html += `<button class="ap-btn" data-act="trans">🌐 Translate</button>`;
+  html += `<button class="ap-btn" data-act="ask">✨ Ask AI</button>`;
+  if(cfg.enableCapture) html += `<button class="ap-btn" data-act="capture">📝 Capture</button>`;
+  c.innerHTML = html;
+};
 
 const posCard = (id) => {
   const c = document.getElementById(id); c.style.display = 'flex';
@@ -112,7 +135,10 @@ const apSet = () => {
   document.getElementById('cfg-key').value=cfg.key; 
   document.getElementById('cfg-mods').value=cfg.models.join(','); 
   document.getElementById('cfg-trans').value=cfg.trans; 
-  document.getElementById('cfg-lang').value=cfg.lang; 
+  document.getElementById('cfg-trans-prompt').value=cfg.trans_system_prompt; 
+  document.getElementById('cfg-en-trans').checked=cfg.enableTrans;
+  document.getElementById('cfg-en-cap').checked=cfg.enableCapture;
+  document.getElementById('cfg-cap-key').value=cfg.captureKey;
   document.getElementById('ap-set').style.display='flex'; 
 };
 
@@ -121,8 +147,11 @@ const apSaveSet = () => {
   cfg.key=document.getElementById('cfg-key').value; 
   cfg.models=document.getElementById('cfg-mods').value.split(',').map(s=>s.trim()); 
   cfg.trans=document.getElementById('cfg-trans').value.trim(); 
-  cfg.lang=document.getElementById('cfg-lang').value.trim(); 
-  saveData(); updMods(); document.getElementById('ap-set').style.display='none'; 
+  cfg.trans_system_prompt=document.getElementById('cfg-trans-prompt').value.trim(); 
+  cfg.enableTrans=document.getElementById('cfg-en-trans').checked;
+  cfg.enableCapture=document.getElementById('cfg-en-cap').checked;
+  cfg.captureKey=document.getElementById('cfg-cap-key').value.trim() || 'c';
+  saveData(); updMods(); renderActBtns(); document.getElementById('ap-set').style.display='none'; 
 };
 
 const updMods = () => ['ap-pop-mod','ap-side-mod'].forEach(id => { const el = document.getElementById(id); if(el) el.innerHTML = cfg.models.map(m=>`<option value="${m}">${m}</option>`).join(''); });
@@ -173,15 +202,30 @@ const apAsk = () => { apHide(); const s = {id:Date.now().toString(), title:curTe
 const apTrans = () => { 
   apHide(); posCard('ap-trans'); 
   const c = document.getElementById('ap-trans-res'); 
-  c.innerHTML = '<span style="color:#999">翻译中...</span>'; 
+  c.innerHTML = '<span style="color:#999">Translating...</span>'; 
   let fTxt = '';
   fetchAI(
-    [{role:"system",content:`Translate to ${cfg.lang}. Only output translation.`},{role:"user",content:curText}], 
+    [
+      {role:"system",content:cfg.trans_system_prompt || 'Translate to Chinese. Only output translation.'},
+      {role:"user",content:curText}
+    ],    
     cfg.trans || cfg.models[0], 
     d => { if(d.content) { fTxt += d.content; c.innerHTML = renderMD(fTxt); } }, 
     ()=>{}, 
     e => c.innerHTML=`<span style="color:red">${e}</span>`
   ); 
+};
+
+const apCapture = () => {
+  console.log('[Appine-Debug] 📝 apCapture 函数被触发了！');
+  
+  const tplKey = cfg.captureKey || 'c';
+  const targetUrl = `org-protocol://capture?template=${tplKey}&url=` + encodeURIComponent(location.href) + '&title=' + encodeURIComponent(document.title) + '&body=' + encodeURIComponent(curText);
+  
+  console.log('[Appine-Debug] 🔗 准备跳转的 URL:', targetUrl);
+  
+  location.href = targetUrl;
+  apHide(); 
 };
 
 export default {
@@ -191,7 +235,8 @@ export default {
     await loadData(); 
     initUI(); 
     updMods();
-    
+    renderActBtns();
+        
     // 拦截事件，防止宿主网页干扰
     clickHandler = e => {
       // 如果点击发生在我们的 UI 内部，立即阻止事件传播给宿主网页
@@ -204,8 +249,9 @@ export default {
       e.preventDefault(); // 阻止按钮的默认行为
 
       const {act, sid, idx, cid, val} = t.dataset;
+      console.log('[Appine-Debug] 🖱️ 捕获到按钮点击，动作 (act):', act);
       const acts = {
-        trans: apTrans, ask: apAsk, hide: apHide, toggleSide: apToggleSide, set: apSet,
+        trans: apTrans, ask: apAsk, capture: apCapture, hide: apHide, toggleSide: apToggleSide, set: apSet,
         cancelSet: () => document.getElementById('ap-set').style.display='none',
         saveSet: apSaveSet,
         copy: () => navigator.clipboard.writeText(t.closest('.ap-user-row, .ap-ai-row').querySelector('.ap-user-bubble, .ap-ai-text').innerText),

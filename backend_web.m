@@ -801,6 +801,21 @@ extern void appine_core_add_web_tab(NSString *urlString);
 #pragma mark - WKNavigationDelegate (Downloads)
 
 - (void)webView:(WKWebView *)webView decidePolicyForNavigationAction:(WKNavigationAction *)navigationAction decisionHandler:(void (^)(WKNavigationActionPolicy))decisionHandler {
+    NSURL *url = navigationAction.request.URL;
+    
+    // 1. 拦截 org-protocol 协议
+    if ([url.scheme isEqualToString:@"org-protocol"]) {
+        APPINE_LOG(@"[Appine-Web] 拦截到 org-protocol: %@", url.absoluteString);
+        
+        // 2. 阻止 WKWebView 的默认加载行为，防止静默失败
+        decisionHandler(WKNavigationActionPolicyCancel);
+        
+        // 3. 通过 macOS 系统 API 抛出 URL。
+        // 因为当前 Emacs 已经运行且（通常）注册了该协议，系统会瞬间将其路由回 Emacs 内部触发 Capture。
+        [[NSWorkspace sharedWorkspace] openURL:url];
+        return;
+    }
+
     if (@available(macOS 11.3, *)) {
         if (navigationAction.shouldPerformDownload) {
             decisionHandler(WKNavigationActionPolicyDownload);
