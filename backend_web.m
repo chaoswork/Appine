@@ -987,12 +987,24 @@ extern void appine_core_add_web_tab(NSString *urlString);
     return self.containerView;
 }
 
-- (void)loadURL:(NSString *)url {
-    NSURL *u = [NSURL URLWithString:url];
-    if (u) {
-        [self.webView loadRequest:[NSURLRequest requestWithURL:u]];
+- (void)loadURL:(NSString *)urlString {
+    if (!urlString || urlString.length == 0) return;
+    
+    NSURL *url = [NSURL URLWithString:urlString];
+    if (!url) return;
+
+    // 区分本地文件和网络请求，解决 WKWebView 沙盒权限问题
+    if (url.isFileURL) {
+        // 授予读取当前文件所在目录的权限，这样本地 HTML 才能加载同目录的 CSS/JS/图片
+        NSURL *readAccessUrl = [url URLByDeletingLastPathComponent];
+        [self.webView loadFileURL:url allowingReadAccessToURL:readAccessUrl];
+    } else {
+        // 常规网络请求
+        NSURLRequest *request = [NSURLRequest requestWithURL:url];
+        [self.webView loadRequest:request];
     }
 }
+
 
 @end
 
