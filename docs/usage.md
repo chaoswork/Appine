@@ -33,6 +33,35 @@ Although there is a toolbar at the top, most common operations support both macO
 
 ## Web Browser Plugins
 
+### Selection Assistant
+
+To facilitate daily browser operations, Appine\'s browser comes with a built-in **Selection Assistant** plugin. When you select text content on a webpage, a floating toolbar will appear as shown below.
+
+<img width="521" alt="Image" src="https://github.com/user-attachments/assets/c2c8068a-254f-4311-9534-7cb7f6a32a77" />
+
+- **Capture**: Captures the selected content along with the webpage link into your `inbox.org`.
+
+  You need to configure `org-capture-template`. An example is as follows:
+  ````
+  (setq org-capture-templates
+      `(("i" "Inbox" entry (file, (concat chaoswork/gtd-directory "inbox.org"))
+         "* TODO %?\n%i\nfrom: %a\n/Entered on/ %U")
+        ("c" "org-protocol-capture" entry (file ,(concat chaoswork/gtd-directory "inbox.org"))
+         "* TODO [[%:link][%:description]]\n\n %i" :immediate-finish t)))
+  ````
+  The shortcut key for `org-protocol-capture` here is set to `c`. If you prefer a different key, you can modify it in the settings.
+
+- **Search**: Searches for the selected content. The default search engine is Google, but you can configure it to use a different search engine.
+
+- **Translate**: Translates content using AI. You can customize the translation `system_prompt`.
+
+- **Ask AI**: Uses the selected content as context, allowing you to have a conversation with AI based on it.
+
+You can follow the steps below to configure the Selection Assistant and view conversation history:
+
+<img width="512" alt="Image" src="https://github.com/user-attachments/assets/1a12af27-f18f-4a38-b992-f4873c038806" />
+
+
 ### Link Hints
 
 To quickly open links on web pages, I wrote a simple link-hints plugin for Appine\'s built-in browser. It works similarly to Vimium - pressing `f` will highlight the links on the page, and then pressing the corresponding key will quickly open the link on the current page, or pressing `q` to quit the link hints, as shown below:

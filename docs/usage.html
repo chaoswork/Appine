@@ -93,6 +93,36 @@ supported shortcuts include:</p>
 <li>Undo: <code>C-/</code> or <code>Cmd + z</code></li>
 </ul>
 <h2 id="web-browser-plugins">Web Browser Plugins</h2>
+<h3 id="selection-assistant">Selection Assistant</h3>
+<p>To facilitate daily browser operations, Appine's browser comes with a
+built-in <strong>Selection Assistant</strong> plugin. When you select
+text content on a webpage, a floating toolbar will appear as shown
+below.</p>
+<p><img width="521" alt="Image" src="https://github.com/user-attachments/assets/c2c8068a-254f-4311-9534-7cb7f6a32a77" /></p>
+<ul>
+<li><p><strong>Capture</strong>: Captures the selected content along
+with the webpage link into your <code>inbox.org</code>.</p>
+<p>You need to configure <code>org-capture-template</code>. An example
+is as follows:</p>
+<pre><code>(setq org-capture-templates
+    `((&quot;i&quot; &quot;Inbox&quot; entry (file, (concat chaoswork/gtd-directory &quot;inbox.org&quot;))
+       &quot;* TODO %?\n%i\nfrom: %a\n/Entered on/ %U&quot;)
+      (&quot;c&quot; &quot;org-protocol-capture&quot; entry (file ,(concat chaoswork/gtd-directory &quot;inbox.org&quot;))
+       &quot;* TODO [[%:link][%:description]]\n\n %i&quot; :immediate-finish t)))</code></pre>
+<p>The shortcut key for <code>org-protocol-capture</code> here is set to
+<code>c</code>. If you prefer a different key, you can modify it in the
+settings.</p></li>
+<li><p><strong>Search</strong>: Searches for the selected content. The
+default search engine is Google, but you can configure it to use a
+different search engine.</p></li>
+<li><p><strong>Translate</strong>: Translates content using AI. You can
+customize the translation <code>system_prompt</code>.</p></li>
+<li><p><strong>Ask AI</strong>: Uses the selected content as context,
+allowing you to have a conversation with AI based on it.</p></li>
+</ul>
+<p>You can follow the steps below to configure the Selection Assistant
+and view conversation history:</p>
+<p><img width="512" alt="Image" src="https://github.com/user-attachments/assets/1a12af27-f18f-4a38-b992-f4873c038806" /></p>
 <h3 id="link-hints">Link Hints</h3>
 <p>To quickly open links on web pages, I wrote a simple link-hints
 plugin for Appine's built-in browser. It works similarly to Vimium -
